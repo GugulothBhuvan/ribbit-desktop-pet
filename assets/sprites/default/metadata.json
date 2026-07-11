@@ -1,0 +1,128 @@
+{
+  "sprite_sheet": "spritesheet.png",
+  "frame_width": 138,
+  "frame_height": 191,
+  "animations": {
+    "idle": {
+      "fps": 10,
+      "loop": true,
+      "frames": [
+        {"x": 0, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 138, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 276, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 414, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 552, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 690, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 828, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 966, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 1104, "y": 0, "w": 138, "h": 191, "duration_ms": 100},
+        {"x": 1242, "y": 0, "w": 138, "h": 191, "duration_ms": 100}
+      ]
+    },
+    "walk": {
+      "fps": 14,
+      "loop": true,
+      "frames": [
+        {"x": 0, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 138, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 276, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 414, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 552, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 690, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 828, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 966, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 1104, "y": 191, "w": 138, "h": 191, "duration_ms": 71},
+        {"x": 1242, "y": 191, "w": 138, "h": 191, "duration_ms": 71}
+      ]
+    },
+    "wave": {
+      "fps": 12,
+      "loop": false,
+      "frames": [
+        {"x": 0, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 138, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 276, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 414, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 552, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 690, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 828, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 966, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 1104, "y": 382, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 1242, "y": 382, "w": 138, "h": 191, "duration_ms": 83}
+      ]
+    },
+    "crouch": {
+      "fps": 12,
+      "loop": false,
+      "frames": [
+        {"x": 0, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 138, "y": 573, "w": 138, "h": 191, "duration_ms": 83}
+      ]
+    },
+    "launch": {
+      "fps": 12,
+      "loop": false,
+      "frames": [
+        {"x": 276, "y": 573, "w": 138, "h": 191, "duration_ms": 83}
+      ]
+    },
+    "fall": {
+      "fps": 12,
+      "loop": true,
+      "frames": [
+        {"x": 414, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 552, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 690, "y": 573, "w": 138, "h": 191, "duration_ms": 83}
+      ]
+    },
+    "landing": {
+      "fps": 12,
+      "loop": false,
+      "frames": [
+        {"x": 828, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 966, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 1104, "y": 573, "w": 138, "h": 191, "duration_ms": 83},
+        {"x": 1242, "y": 573, "w": 138, "h": 191, "duration_ms": 83}
+      ]
+    },
+    "sit": {
+      "fps": 1,
+      "loop": true,
+      "frames": [
+        {"x": 138, "y": 573, "w": 138, "h": 191, "duration_ms": 1000}
+      ]
+    },
+    "think": {
+      "fps": 8,
+      "loop": true,
+      "frames": [
+        {"x": 0, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 138, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 276, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 414, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 552, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 690, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 828, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 966, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 1104, "y": 764, "w": 138, "h": 191, "duration_ms": 125},
+        {"x": 1242, "y": 764, "w": 138, "h": 191, "duration_ms": 125}
+      ]
+    },
+    "talk": {
+      "fps": 15,
+      "loop": true,
+      "frames": [
+        {"x": 0, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 138, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 276, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 414, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 552, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 690, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 828, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 966, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 1104, "y": 955, "w": 138, "h": 191, "duration_ms": 66},
+        {"x": 1242, "y": 955, "w": 138, "h": 191, "duration_ms": 66}
+      ]
+    }
+  }
+}
