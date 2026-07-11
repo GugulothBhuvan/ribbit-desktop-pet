@@ -65,7 +65,7 @@ class KrutrimProvider(LLMProvider):
                 return data["choices"][0]["message"]["content"].strip()
         except Exception as e:
             logger.error(f"Krutrim API generation failed: {e}")
-            return f"My thinking circuits got crossed! (Error: {str(e)})"
+            return "I'm having trouble thinking right now."
 
     async def stream(self, prompt: str, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         if not self.api_key or "your_" in self.api_key:
@@ -79,9 +79,8 @@ class KrutrimProvider(LLMProvider):
             async with httpx.AsyncClient(timeout=10.0) as client:
                 async with client.stream("POST", self.api_url, headers=headers, json=payload) as response:
                     if response.status_code != 200:
-                        yield f"Krutrim Error: Status code {response.status_code}"
-                        return
-                        
+                        raise RuntimeError(f"Krutrim API returned status {response.status_code}")
+
                     async for line in response.aiter_lines():
                         line = line.strip()
                         if not line or not line.startswith("data: "):
@@ -101,7 +100,7 @@ class KrutrimProvider(LLMProvider):
                             continue
         except Exception as e:
             logger.error(f"Krutrim API streaming failed: {e}")
-            yield f" (Streaming interrupted: {str(e)})"
+            raise RuntimeError("Krutrim streaming request failed") from e
 
     def supports_vision(self) -> bool:
         # Standard Krutrim Qwen API might not support vision unless specifically configured.

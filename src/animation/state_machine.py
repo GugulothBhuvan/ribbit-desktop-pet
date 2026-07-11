@@ -11,15 +11,28 @@ class StateMachine:
     Manages state shifts, validates allowed state transitions, and enforces rules
     such as wake-up sequences and physical interruptions.
     """
-    def __init__(self):
-        self.event_bus = EventBus.get_instance()
-        self.sprite_loader = SpriteLoader.get_instance()
-        
+    # Events this machine reacts to (all handled on the GUI thread,
+    # since state changes drive sprite selection and animation timers).
+    SUBSCRIBED_EVENTS = [
+        EventType.STATE_TRANSITION_TRIGGERED,
+        EventType.PET_DRAGGED,
+        EventType.PET_DROPPED,
+        EventType.LLM_REQUEST_SENT,
+        EventType.VOICE_START_RECORDING,
+        EventType.VOICE_STOP_RECORDING,
+        EventType.LLM_RESPONSE_RECEIVED,
+        EventType.ANIMATION_FINISHED,
+    ]
+
+    def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader):
+        self.event_bus = event_bus
+        self.sprite_loader = sprite_loader
+
         self._current_state = PetState.IDLE
         self._state_start_time = time.time()
-        
-        # Register to listen to manual state change overrides
-        self.event_bus.subscribe(self.on_event)
+
+        for event_type in self.SUBSCRIBED_EVENTS:
+            self.event_bus.subscribe(event_type, self.on_event, executor="gui")
 
     @property
     def current_state(self) -> str:

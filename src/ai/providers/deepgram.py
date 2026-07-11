@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import httpx
 from src.ai.providers.base import VoiceProvider
 from src.config import Config
@@ -15,14 +16,16 @@ class DeepgramProvider(VoiceProvider):
         self.api_key = Config.DEEPGRAM_API_KEY
         self.api_url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
 
-    async def transcribe(self, audio_filepath: str) -> str:
+    async def transcribe(self, audio_filepath: str) -> Optional[str]:
+        """Transcribes the given WAV file. Returns None on any failure so callers
+        never mistake an error message for user speech."""
         if not self.api_key or "your_" in self.api_key:
             logger.warning("Deepgram API key is unconfigured, returning dummy test phrase.")
             return "How does my code look today?"
 
         if not os.path.exists(audio_filepath):
             logger.error(f"Audio file to transcribe not found: {audio_filepath}")
-            return ""
+            return None
 
         headers = {
             "Authorization": f"Token {self.api_key}",
@@ -53,10 +56,10 @@ class DeepgramProvider(VoiceProvider):
                         return transcript.strip()
                         
                 logger.warning("Deepgram API returned empty alternatives lists.")
-                return ""
+                return None
         except Exception as e:
             logger.error(f"Deepgram transcription request failed: {e}")
-            return f"(STT error: {str(e)})"
+            return None
 
     async def health(self) -> bool:
         if not self.api_key or "your_" in self.api_key:

@@ -12,7 +12,7 @@ class ExamplePlugin:
         return "ExamplePlugin"
         
     def initialize(self, event_bus: EventBus) -> None:
-        event_bus.subscribe(self.on_event)
+        event_bus.subscribe(EventType.APPLICATION_CHANGED, self.on_event, executor="gui")
         logger.info("ExamplePlugin initialized and registered with EventBus.")
         
     def on_event(self, event_type: str, data: dict):

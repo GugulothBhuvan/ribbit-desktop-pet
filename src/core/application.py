@@ -1,40 +1,34 @@
-import sys
 import threading
 import asyncio
-from typing import Coroutine
-from src.config import Config
-from src.storage.db import Database
+from typing import Coroutine, Optional
 from src.utils.logger import get_logger
 
 logger = get_logger("Application")
 
+
 class Application:
     """
-    Main application engine coordinating background asyncio loop threads
-    and orchestrating safe startup and shutdown procedures.
-    """
-    _instance = None
+    Owns the background asyncio worker loop thread.
 
-    @classmethod
-    def get_instance(cls) -> "Application":
-        if cls._instance is None:
-            cls._instance = Application()
-        return cls._instance
+    This class hosts *no* Qt objects and performs *no* subsystem construction —
+    that is the CompositionRoot's job (src/core/composition.py). Its only
+    responsibilities are: start the loop thread, schedule coroutines onto it
+    from any thread, and stop it cleanly.
+    """
 
     def __init__(self):
-        self.loop_thread: threading.Thread = None
-        self.loop: asyncio.AbstractEventLoop = None
+        self.loop_thread: Optional[threading.Thread] = None
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.is_running = False
 
     def start(self):
         """Starts the background asynchronous event loop thread."""
         if self.is_running:
             return
-            
-        logger.info("Initializing application background thread...")
+
+        logger.info("Starting background asyncio worker thread...")
         self.is_running = True
-        
-        # Setup background loop
+
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(
             target=self._run_background_loop,
@@ -43,59 +37,33 @@ class Application:
             name="PetAsyncWorker"
         )
         self.loop_thread.start()
-        
-        # Run sequential startup: database migrations first, load DB overrides, then start scheduler
-        async def startup_sequence():
-            await Database.get_instance().initialize()
-            await Config.load_db_overrides()
-            
-            # Start plugins, telemetry, and animation state machine
-            from src.plugins.manager import PluginManager
-            from src.observer.telemetry import TelemetryTracker
-            from src.animation.state_machine import StateMachine
-            
-            PluginManager.get_instance().load_plugins()
-            TelemetryTracker.get_instance().start()
-            self.state_machine = StateMachine()
-
-            # Start Win32 Observer QThread
-            from src.observer.win32_hook import Win32Observer
-            self.observer = Win32Observer()
-            self.observer.start()
-
-            from src.core.scheduler import AmbientScheduler
-            await AmbientScheduler.get_instance().run()
-            
-        self.run_async(startup_sequence())
 
     def _run_background_loop(self, loop: asyncio.AbstractEventLoop):
         asyncio.set_event_loop(loop)
         logger.info("Background asyncio loop thread started.")
         loop.run_forever()
 
-    def run_async(self, coro: Coroutine) -> asyncio.Future:
-        """Schedules a coroutine to run on the background event loop thread safely."""
+    def run_async(self, coro: Coroutine) -> Optional["asyncio.Future"]:
+        """Schedules a coroutine to run on the background event loop thread safely.
+
+        Returns a concurrent.futures.Future (use .result(timeout) to block)."""
         if not self.is_running or not self.loop:
             logger.error("Cannot run task. Background loop is not active.")
             return None
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
     def shutdown(self):
-        """Cleanly stops the background loop and shuts down the application."""
+        """Cleanly stops the background loop."""
         if not self.is_running:
             return
-            
+
         logger.info("Stopping background event loop...")
         self.is_running = False
-        
-        if hasattr(self, "observer") and self.observer:
-            self.observer.stop()
-            self.observer = None
-            
+
         if self.loop:
             self.loop.call_soon_threadsafe(self.loop.stop)
-            
+
         if self.loop_thread:
             self.loop_thread.join(timeout=3.0)
-            
+
         logger.info("Application loop shut down successfully.")

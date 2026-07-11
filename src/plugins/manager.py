@@ -13,16 +13,9 @@ class PluginManager:
     Scans the plugins directory, dynamically loads compliant python plugins,
     and hooks them into the central EventBus broker.
     """
-    _instance = None
 
-    @classmethod
-    def get_instance(cls) -> "PluginManager":
-        if cls._instance is None:
-            cls._instance = PluginManager()
-        return cls._instance
-
-    def __init__(self):
-        self.event_bus = EventBus.get_instance()
+    def __init__(self, event_bus: EventBus):
+        self.event_bus = event_bus
         self.loaded_plugins: List[IPlugin] = []
         self.plugins_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src", "plugins"))
 

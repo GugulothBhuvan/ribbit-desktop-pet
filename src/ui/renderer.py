@@ -12,9 +12,9 @@ class SpriteRenderer(QObject):
     """
     animation_finished = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, sprite_loader: SpriteLoader):
         super().__init__()
-        self.sprite_loader = SpriteLoader.get_instance()
+        self.sprite_loader = sprite_loader
         
         self.current_state = "idle"
         self.frames: list[QPixmap] = []

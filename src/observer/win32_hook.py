@@ -36,9 +36,9 @@ class Win32Observer(QThread):
     Observes active window shifts, user idle times, network availability, and battery status.
     Publishes events to the EventBus without directly invoking the LLM.
     """
-    def __init__(self):
+    def __init__(self, event_bus: EventBus):
         super().__init__()
-        self.event_bus = EventBus.get_instance()
+        self.event_bus = event_bus
         self.is_running = True
         
         # State tracking variables
@@ -107,7 +107,9 @@ class Win32Observer(QThread):
         if app_name != self.prev_app or title != self.prev_title:
             self.prev_app = app_name
             self.prev_title = title
-            logger.info(f"Active window change: {app_name} - '{title}'")
+            # DEBUG level: window titles can contain sensitive content and
+            # must not accumulate in the persistent INFO log.
+            logger.debug(f"Active window change: {app_name} - '{title}'")
             self.event_bus.publish(EventType.APPLICATION_CHANGED, {
                 "app_name": app_name,
                 "title": title

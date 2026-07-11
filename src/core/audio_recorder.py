@@ -1,5 +1,6 @@
 import os
 import wave
+import tempfile
 import threading
 import pyaudio
 from src.utils.logger import get_logger
@@ -8,16 +9,11 @@ logger = get_logger("AudioRecorder")
 
 class AudioRecorder:
     """
-    Singleton class to handle microphone audio recording on a background thread.
-    Saves the recorded audio to a mono 16kHz WAV file.
+    Handles microphone audio recording on a background thread.
+    Saves the recorded audio to a mono 16kHz WAV file in the OS temp
+    directory (never the project folder); the orchestrator deletes it
+    after transcription.
     """
-    _instance = None
-
-    @classmethod
-    def get_instance(cls) -> "AudioRecorder":
-        if cls._instance is None:
-            cls._instance = AudioRecorder()
-        return cls._instance
 
     def __init__(self):
         self.p = pyaudio.PyAudio()
@@ -25,7 +21,9 @@ class AudioRecorder:
         self.frames = []
         self.is_recording = False
         self.record_thread = None
-        self.output_filename = "speech_record.wav"
+        self.output_filename = os.path.join(
+            tempfile.gettempdir(), f"desk_pet_ptt_{os.getpid()}.wav"
+        )
         
         # Audio parameters
         self.channels = 1

@@ -17,8 +17,8 @@ class MovementController:
     Main coordinates physics loop. Calculates kinematics updates,
     autonomous wandering, friction drag dampening, and mouse drag tracking.
     """
-    def __init__(self, initial_x: float, initial_y: float, width: int, height: int):
-        self.event_bus = EventBus.get_instance()
+    def __init__(self, event_bus: EventBus, initial_x: float, initial_y: float, width: int, height: int):
+        self.event_bus = event_bus
         
         self.x = initial_x
         self.y = initial_y

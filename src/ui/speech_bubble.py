@@ -1,6 +1,5 @@
-import time
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygon
 from src.constants import (
     MAX_BUBBLE_WIDTH, DEFAULT_TYPING_SPEED_MS,
@@ -14,7 +13,11 @@ class SpeechBubble(QWidget):
     """
     Floating speech bubble painted next to the pet.
     Implements a typewriter typing animation, auto-resizing, and auto-fade mechanisms.
+    Emits `dismissed` when the fade-out completes so the window can return the
+    pet from TALK back to IDLE.
     """
+    dismissed = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         
@@ -93,8 +96,6 @@ class SpeechBubble(QWidget):
         bubble_y = pet_pos.y() - self.height() - 5  # 5px offset above pet
         
         # Clamps to avoid placing bubble off screen
-        # Simple viewport boundary check
-        app = QWidget.find(int(self.winId()))
         screen = self.screen()
         if screen:
             screen_rect = screen.availableGeometry()
@@ -156,6 +157,7 @@ class SpeechBubble(QWidget):
             self.opacity = 0.0
             self.fade_timer.stop()
             self.hide()
+            self.dismissed.emit()
         else:
             self.update()
 

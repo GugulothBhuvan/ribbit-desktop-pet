@@ -14,14 +14,10 @@ class SpriteLoader:
     Loads, slices, scales, and caches animation frames from the sprite sheet.
     Implements a resource cleanup mechanism to purge unused frames after 60 seconds
     to maintain a low memory footprint (<180 MB).
-    """
-    _instance = None
 
-    @classmethod
-    def get_instance(cls) -> "SpriteLoader":
-        if cls._instance is None:
-            cls._instance = SpriteLoader()
-        return cls._instance
+    Must be constructed on the GUI thread AFTER QApplication exists
+    (it creates QPixmaps and a QTimer). The CompositionRoot guarantees this.
+    """
 
     def __init__(self):
         # Configure mascot path dynamically from config overrides

@@ -1,6 +1,5 @@
 import asyncio
 import time
-from datetime import datetime
 import httpx
 from src.event_bus import EventBus, EventType
 from src.storage.db import Database
@@ -73,20 +72,25 @@ class AmbientScheduler:
     Main polling loop running on background asyncio thread.
     Triggers weather fetch updates, low battery checks, calendar alarms,
     and handles Pomodoro time progression.
+    Event handlers run on the async worker loop (executor="async").
     """
-    _instance = None
 
-    @classmethod
-    def get_instance(cls) -> "AmbientScheduler":
-        if cls._instance is None:
-            cls._instance = AmbientScheduler()
-        return cls._instance
+    # Events consumed by the AI-invocation decision engine
+    SUBSCRIBED_EVENTS_ASYNC = [
+        EventType.BATTERY_WARNING,
+        EventType.TESTS_PASSED,
+        EventType.TESTS_FAILED,
+        EventType.USER_IDLE,
+        EventType.USER_ACTIVE,
+        EventType.APPLICATION_CHANGED,
+        EventType.SCREEN_STABLE,
+    ]
 
-    def __init__(self):
-        self.event_bus = EventBus.get_instance()
-        self.db = Database.get_instance()
+    def __init__(self, event_bus: EventBus, db: Database, context_engine: ContextEngine):
+        self.event_bus = event_bus
+        self.db = db
         self.reminder_repo = ReminderRepository(self.db)
-        self.context_engine = ContextEngine()
+        self.context_engine = context_engine
         self.pomodoro = PomodoroTimer(self.event_bus)
         
         # Track checking times
@@ -103,7 +107,8 @@ class AmbientScheduler:
         self.pending_low_priority_events = []
         
         # Subscribe to Event Bus to act as the central AI Scheduler decision engine
-        self.event_bus.subscribe(self.on_event)
+        for event_type in self.SUBSCRIBED_EVENTS_ASYNC:
+            self.event_bus.subscribe(event_type, self.on_event, executor="async")
 
     def on_event(self, event_type: str, data: dict):
         """Processes and filters system events to throttle and coordinate AI invocation."""

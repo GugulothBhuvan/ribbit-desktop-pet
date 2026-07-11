@@ -1,9 +1,12 @@
 import os
 from dotenv import load_dotenv
 from src.constants import DEFAULT_DB_PATH
+from src.utils.logger import get_logger
 
 # Load environment variables from .env
 load_dotenv()
+
+logger = get_logger("Config")
 
 class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "krutrim").lower()
@@ -38,8 +41,8 @@ class Config:
     @classmethod
     def validate(cls):
         """Perform basic validation on configuration."""
-        if cls.LLM_PROVIDER not in ["krutrim"]:
-            print(f"Warning: Unknown LLM_PROVIDER '{cls.LLM_PROVIDER}', defaulting to 'krutrim'")
+        if cls.LLM_PROVIDER not in ["krutrim", "gemini"]:
+            logger.warning(f"Unknown LLM_PROVIDER '{cls.LLM_PROVIDER}', defaulting to 'krutrim'")
             cls.LLM_PROVIDER = "krutrim"
         
         # Verify database directory exists
@@ -48,10 +51,10 @@ class Config:
             os.makedirs(db_dir, exist_ok=True)
 
     @classmethod
-    async def load_db_overrides(cls):
-        """Loads configuration overrides from the database settings table."""
-        from src.storage.db import Database
-        db = Database.get_instance()
+    async def load_db_overrides(cls, db):
+        """Loads configuration overrides from the database settings table.
+
+        `db` is the injected src.storage.db.Database instance."""
         try:
             # Query LLM Provider
             rows = await db.execute_query("SELECT value FROM settings WHERE key = 'LLM_PROVIDER';")
@@ -71,6 +74,6 @@ class Config:
                 cls.SELECTED_MASCOT = "default"
                 
             cls.validate()
-            print(f"Loaded config overrides: Provider={cls.LLM_PROVIDER}, Model={cls.KRUTRIM_MODEL}, Mascot={cls.SELECTED_MASCOT}")
+            logger.info(f"Loaded config overrides: Provider={cls.LLM_PROVIDER}, Model={cls.KRUTRIM_MODEL}, Mascot={cls.SELECTED_MASCOT}")
         except Exception as e:
-            print(f"Error loading config overrides: {e}")
+            logger.error(f"Error loading config overrides: {e}")

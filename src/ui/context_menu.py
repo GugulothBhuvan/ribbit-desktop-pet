@@ -1,5 +1,4 @@
 import os
-import asyncio
 from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction
 from src.config import Config
@@ -40,25 +39,28 @@ class ContextMenu(QMenu):
     """
     Styled context menu triggered on right-clicking the pet.
     Allows adjustment of pet settings, memory clearance, and application shutdown.
+    Dependencies (db, application, scheduler) are injected by the CompositionRoot
+    via PetWindow.
     """
-    def __init__(self, parent_window):
+    def __init__(self, parent_window, event_bus: EventBus, db: Database, application, scheduler):
         super().__init__(parent_window)
         self.parent_window = parent_window
-        self.event_bus = EventBus.get_instance()
+        self.event_bus = event_bus
+        self.application = application
+        self.scheduler = scheduler
         self.setStyleSheet(MENU_STYLESHEET)
-        
-        self.db = Database.get_instance()
-        self.conv_repo = ConversationRepository(self.db)
-        self.memory_repo = MemoryRepository(self.db)
-        self.settings_repo = SettingsRepository(self.db)
-        
+
+        self.conv_repo = ConversationRepository(db)
+        self.memory_repo = MemoryRepository(db)
+        self.settings_repo = SettingsRepository(db)
+
         self._init_actions()
 
     def _init_actions(self):
         # 1. Mascot Customization Submenu
         mascot_menu = self.addMenu("Change Mascot")
         mascot_menu.setStyleSheet(MENU_STYLESHEET)
-        
+
         sprites_root = os.path.join("assets", "sprites")
         if os.path.exists(sprites_root):
             for folder in os.listdir(sprites_root):
@@ -74,7 +76,7 @@ class ContextMenu(QMenu):
         # 2. AI Provider & Model Submenu
         ai_menu = self.addMenu("AI Model Settings")
         ai_menu.setStyleSheet(MENU_STYLESHEET)
-        
+
         models = [
             ("Krutrim 2 Flash", "krutrim-2-flash"),
             ("Krutrim 2 Instruct", "krutrim-2-instruct"),
@@ -85,49 +87,49 @@ class ContextMenu(QMenu):
             act = QAction(label, self)
             act.triggered.connect(lambda checked, m=model_id: self._on_ai_changed("krutrim", m))
             ai_menu.addAction(act)
-            
+
         self.addSeparator()
 
         # 3. Scaling Submenu
         scale_menu = self.addMenu("Adjust Scale")
         scale_menu.setStyleSheet(MENU_STYLESHEET)
-        
+
         scales = [("0.5x (Small)", 0.5), ("1.0x (Normal)", 1.0), ("1.5x (Large)", 1.5), ("2.0x (Huge)", 2.0)]
         for label, val in scales:
             act = QAction(label, self)
             act.triggered.connect(lambda checked, v=val: self._on_scale_changed(v))
             scale_menu.addAction(act)
-            
+
         self.addSeparator()
-        
+
         # 4. Clear Chat History Action
         clear_memory_act = QAction("Clear Memories & Chat History", self)
         clear_memory_act.triggered.connect(self._clear_memories)
         self.addAction(clear_memory_act)
-        
+
         # 5. Toggle Mute Action
         self.mute_act = QAction("Mute Speech", self, checkable=True)
         self.mute_act.triggered.connect(self._on_mute_toggled)
         self.addAction(self.mute_act)
-        
+
         # 6. Pomodoro Submenu
         pomo_menu = self.addMenu("Pomodoro Timer")
         pomo_menu.setStyleSheet(MENU_STYLESHEET)
-        
+
         start_work_act = QAction("Start Work (25 min)", self)
         start_work_act.triggered.connect(self._start_pomo_work)
         pomo_menu.addAction(start_work_act)
-        
+
         start_break_act = QAction("Start Break (5 min)", self)
         start_break_act.triggered.connect(self._start_pomo_break)
         pomo_menu.addAction(start_break_act)
-        
+
         stop_pomo_act = QAction("Stop Timer", self)
         stop_pomo_act.triggered.connect(self._stop_pomo)
         pomo_menu.addAction(stop_pomo_act)
-        
+
         self.addSeparator()
-        
+
         # 7. Quit Action
         quit_act = QAction("Quit Desktop Pet", self)
         quit_act.triggered.connect(self._on_quit_triggered)
@@ -135,46 +137,42 @@ class ContextMenu(QMenu):
 
     def _on_scale_changed(self, scale_val: float):
         logger.info(f"Changing pet scale to {scale_val}")
-        self.event_bus.publish(EventType.APPLICATION_STARTED, {"scale": scale_val})
         self.parent_window.update_scale(scale_val)
 
     def _on_mascot_changed(self, mascot_name: str):
         logger.info(f"Switching active mascot to: {mascot_name}")
         Config.SELECTED_MASCOT = mascot_name
         self.parent_window.change_mascot(mascot_name)
-        
+
         # Save setting asynchronously on loop
-        from src.core.application import Application
-        Application.get_instance().run_async(self.settings_repo.set_setting("SELECTED_MASCOT", mascot_name))
+        self.application.run_async(self.settings_repo.set_setting("SELECTED_MASCOT", mascot_name))
 
     def _on_ai_changed(self, provider: str, model: str):
         logger.info(f"Switching AI settings: provider={provider}, model={model}")
         Config.LLM_PROVIDER = provider
-        
-        from src.core.application import Application
-        app = Application.get_instance()
-        
+
         if provider == "gemini":
             Config.GEMINI_MODEL = model
-            app.run_async(self.settings_repo.set_setting("GEMINI_MODEL", model))
+            self.application.run_async(self.settings_repo.set_setting("GEMINI_MODEL", model))
         else:
             Config.KRUTRIM_MODEL = model
-            app.run_async(self.settings_repo.set_setting("KRUTRIM_MODEL", model))
-            
-        app.run_async(self.settings_repo.set_setting("LLM_PROVIDER", provider))
+            self.application.run_async(self.settings_repo.set_setting("KRUTRIM_MODEL", model))
+
+        self.application.run_async(self.settings_repo.set_setting("LLM_PROVIDER", provider))
         self.parent_window.display_speech_bubble(f"AI Provider switched to {provider.upper()} ({model})")
 
     def _clear_memories(self):
         logger.info("Clearing memory database tables...")
-        from src.core.application import Application
-        Application.get_instance().run_async(self._db_clear_records())
+        self.application.run_async(self._db_clear_records())
 
     async def _db_clear_records(self):
+        """Runs on the async worker loop — must not touch UI directly.
+        Success feedback is routed back through the event bus (GUI thread)."""
         try:
             await self.conv_repo.clear_history()
             await self.memory_repo.clear_memory()
             logger.info("Chat and facts memory tables cleared.")
-            self.parent_window.display_speech_bubble("Memories cleared successfully!")
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": "Memories cleared successfully!"})
         except Exception as e:
             logger.error(f"Failed to clear database memories: {e}")
 
@@ -188,17 +186,13 @@ class ContextMenu(QMenu):
         QApplication.quit()
 
     def _start_pomo_work(self):
-        from src.core.scheduler import AmbientScheduler
-        AmbientScheduler.get_instance().pomodoro.start_work(25)
+        self.scheduler.pomodoro.start_work(25)
         self.parent_window.display_speech_bubble("Work session started! Focus time!")
 
     def _start_pomo_break(self):
-        from src.core.scheduler import AmbientScheduler
-        AmbientScheduler.get_instance().pomodoro.start_break(5)
+        self.scheduler.pomodoro.start_break(5)
         self.parent_window.display_speech_bubble("Break session started! Relax.")
 
     def _stop_pomo(self):
-        from src.core.scheduler import AmbientScheduler
-        AmbientScheduler.get_instance().pomodoro.stop()
+        self.scheduler.pomodoro.stop()
         self.parent_window.display_speech_bubble("Pomodoro timer stopped.")
-
