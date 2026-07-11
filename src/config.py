@@ -17,7 +17,11 @@ class Config:
     
     # Krutrim API Settings
     KRUTRIM_API_KEY = os.getenv("KRUTRIM_API_KEY", "")
-    KRUTRIM_MODEL = os.getenv("KRUTRIM_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+    # Default: gemma-4-E4B-it — small, fast, non-reasoning, supports images.
+    # The TRD's Qwen3.6-35B-A3B is a reasoning model on Krutrim: it consumes the
+    # whole max_tokens budget on hidden "reasoning" deltas and returns empty
+    # replies at speech-bubble token limits (verified 2026-07-12).
+    KRUTRIM_MODEL = os.getenv("KRUTRIM_MODEL", "gemma-4-E4B-it")
     
     # Deepgram Voice API
     DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")

@@ -77,11 +77,13 @@ class ContextMenu(QMenu):
         ai_menu = self.addMenu("AI Model Settings")
         ai_menu.setStyleSheet(MENU_STYLESHEET)
 
+        # Verified against Krutrim /v1/models (2026-07-12). Only non-reasoning
+        # models are listed: reasoning models (Qwen3.x, gpt-oss) spend the whole
+        # speech-bubble token budget on hidden thinking and reply with nothing.
         models = [
-            ("Krutrim 2 Flash", "krutrim-2-flash"),
-            ("Krutrim 2 Instruct", "krutrim-2-instruct"),
-            ("Meta Llama 3 8B", "Meta-Llama-3-8B-Instruct"),
-            ("Mistral 7B Instruct", "Mistral-7B-Instruct")
+            ("Gemma 4 E4B (Fast)", "gemma-4-E4B-it"),
+            ("Gemma 4 26B A4B", "gemma-4-26B-A4B-it"),
+            ("Gemma 4 31B", "gemma-4-31b-it"),
         ]
         for label, model_id in models:
             act = QAction(label, self)
