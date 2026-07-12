@@ -1,10 +1,13 @@
 import os
-from PyQt6.QtWidgets import QMenu, QApplication
+from datetime import datetime, timedelta
+from PyQt6.QtWidgets import QMenu, QApplication, QInputDialog
 from PyQt6.QtGui import QAction
 from src.config import Config
 from src.event_bus import EventBus, EventType
 from src.storage.db import Database
-from src.storage.repository import ConversationRepository, MemoryRepository, SettingsRepository
+from src.storage.repository import (
+    ConversationRepository, MemoryRepository, SettingsRepository, ReminderRepository
+)
 from src.utils.logger import get_logger
 
 logger = get_logger("ContextMenu")
@@ -53,6 +56,7 @@ class ContextMenu(QMenu):
         self.conv_repo = ConversationRepository(db)
         self.memory_repo = MemoryRepository(db)
         self.settings_repo = SettingsRepository(db)
+        self.reminder_repo = ReminderRepository(db)
 
         self._init_actions()
 
@@ -102,6 +106,23 @@ class ContextMenu(QMenu):
             act.triggered.connect(lambda checked, v=val: self._on_scale_changed(v))
             scale_menu.addAction(act)
 
+        # 3b. Typing Speed Submenu (persisted accessibility setting, PRD §15)
+        speed_menu = self.addMenu("Typing Speed")
+        speed_menu.setStyleSheet(MENU_STYLESHEET)
+        speeds = [("Slow", 80), ("Normal", 40), ("Fast", 15)]
+        for label, ms in speeds:
+            act = QAction(label, self)
+            act.triggered.connect(lambda checked, m=ms: self._on_typing_speed_changed(m))
+            speed_menu.addAction(act)
+
+        self.addSeparator()
+
+        # 3c. Add Reminder (the reminder engine previously had no create path
+        #     at all — audit M-12)
+        add_reminder_act = QAction("Add Reminder…", self)
+        add_reminder_act.triggered.connect(self._add_reminder)
+        self.addAction(add_reminder_act)
+
         self.addSeparator()
 
         # 4. Clear Chat History Action
@@ -109,10 +130,17 @@ class ContextMenu(QMenu):
         clear_memory_act.triggered.connect(self._clear_memories)
         self.addAction(clear_memory_act)
 
-        # 5. Toggle Mute Action
+        # 5. Toggle Mute Action (persisted)
         self.mute_act = QAction("Mute Speech", self, checkable=True)
+        self.mute_act.setChecked(Config.MUTED)
         self.mute_act.triggered.connect(self._on_mute_toggled)
         self.addAction(self.mute_act)
+
+        # 5b. Calm mode: reduced-motion accessibility toggle (persisted)
+        self.calm_act = QAction("Calm Mode (stay put)", self, checkable=True)
+        self.calm_act.setChecked(Config.REDUCED_MOTION)
+        self.calm_act.triggered.connect(self._on_calm_toggled)
+        self.addAction(self.calm_act)
 
         # 6. Pomodoro Submenu
         pomo_menu = self.addMenu("Pomodoro Timer")
@@ -139,7 +167,35 @@ class ContextMenu(QMenu):
 
     def _on_scale_changed(self, scale_val: float):
         logger.info(f"Changing pet scale to {scale_val}")
+        Config.ANIMATION_SCALE = scale_val
         self.parent_window.update_scale(scale_val)
+        self.application.run_async(self.settings_repo.set_setting("PET_SCALE", str(scale_val)))
+
+    def _on_typing_speed_changed(self, ms: int):
+        logger.info(f"Changing typing speed to {ms}ms/char")
+        Config.SPEECH_TYPING_SPEED_MS = ms
+        self.application.run_async(self.settings_repo.set_setting("SPEECH_TYPING_SPEED_MS", str(ms)))
+        self.parent_window.display_speech_bubble("Typing speed updated!")
+
+    def _on_calm_toggled(self, checked: bool):
+        logger.info(f"Calm mode (reduced motion): {checked}")
+        Config.REDUCED_MOTION = checked
+        self.application.run_async(self.settings_repo.set_setting("REDUCED_MOTION", "1" if checked else "0"))
+
+    def _add_reminder(self):
+        """Prompts for a reminder text + delay and persists it (plan 6.3)."""
+        text, ok = QInputDialog.getText(self.parent_window, "Add Reminder", "Remind me to:")
+        if not ok or not text.strip():
+            return
+        minutes, ok = QInputDialog.getInt(
+            self.parent_window, "Add Reminder", "In how many minutes?",
+            value=30, min=1, max=24 * 60)
+        if not ok:
+            return
+        trigger_time = datetime.now() + timedelta(minutes=minutes)
+        self.application.run_async(self.reminder_repo.add_reminder(trigger_time, text.strip()))
+        self.parent_window.display_speech_bubble(
+            f"Got it! I'll remind you in {minutes} min: {text.strip()}")
 
     def _on_mascot_changed(self, mascot_name: str):
         logger.info(f"Switching active mascot to: {mascot_name}")
@@ -180,7 +236,9 @@ class ContextMenu(QMenu):
 
     def _on_mute_toggled(self, checked: bool):
         logger.info(f"Mute status: {checked}")
+        Config.MUTED = checked
         self.parent_window.set_muted(checked)
+        self.application.run_async(self.settings_repo.set_setting("MUTED", "1" if checked else "0"))
 
     def _on_quit_triggered(self):
         logger.info("Initiating application shutdown...")

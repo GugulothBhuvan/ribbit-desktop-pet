@@ -1,9 +1,8 @@
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygon
-from src.constants import (
-    MAX_BUBBLE_WIDTH, DEFAULT_TYPING_SPEED_MS, READING_TIME_PER_WORD_MS
-)
+from src.config import Config
+from src.constants import MAX_BUBBLE_WIDTH, READING_TIME_PER_WORD_MS
 from src.utils.logger import get_logger
 
 logger = get_logger("SpeechBubble")
@@ -92,8 +91,8 @@ class SpeechBubble(QWidget):
         self.position_bubble(pet_pos, pet_size)
         self.show()
         
-        # Start typewriter animation
-        self.typewriter_timer.start(DEFAULT_TYPING_SPEED_MS)
+        # Start typewriter animation (speed is a persisted user setting)
+        self.typewriter_timer.start(Config.SPEECH_TYPING_SPEED_MS)
 
     def append_chunk(self, chunk: str, pet_pos: QPoint, pet_size: int):
         """Streams a text chunk (real-time stream update)."""
@@ -116,7 +115,7 @@ class SpeechBubble(QWidget):
 
         if not self.typewriter_timer.isActive():
             self.show()
-            self.typewriter_timer.start(DEFAULT_TYPING_SPEED_MS)
+            self.typewriter_timer.start(Config.SPEECH_TYPING_SPEED_MS)
 
     def finish_stream(self):
         """Marks the stream complete; the dismiss countdown starts once the

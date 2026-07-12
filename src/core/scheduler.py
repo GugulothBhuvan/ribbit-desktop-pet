@@ -155,24 +155,25 @@ class AmbientScheduler:
                     logger.info("Scheduler: Screen stable, but AI invocation throttled due to active cooldown.")
 
     async def fetch_local_weather(self):
-        """Fetches geolocation weather information using free, keyless APIs."""
+        """Fetches geolocation weather information using free, keyless APIs.
+        Geolocation goes over HTTPS (the previous ip-api.com endpoint only
+        supports plain HTTP on the free tier — audit M-15)."""
         logger.info("Fetching ambient local weather...")
         try:
             async with httpx.AsyncClient(timeout=6.0) as client:
-                # 1. Geolocation lookup by host IP
-                res = await client.get("http://ip-api.com/json")
+                # 1. Geolocation lookup by host IP (HTTPS)
+                res = await client.get("https://ipapi.co/json/")
                 if res.status_code != 200:
-                    logger.warning("Location lookup failed: wttr.in fallback...")
+                    logger.warning(f"Location lookup failed: status {res.status_code}")
                     return
-                    
+
                 loc = res.json()
-                if loc.get("status") != "success":
-                    logger.warning("ip-api reported unsuccessful lookup.")
-                    return
-                    
-                lat = loc.get("lat")
-                lon = loc.get("lon")
+                lat = loc.get("latitude")
+                lon = loc.get("longitude")
                 city = loc.get("city")
+                if lat is None or lon is None:
+                    logger.warning("Geolocation response missing coordinates.")
+                    return
                 
                 # 2. Query forecast metrics
                 weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
@@ -196,11 +197,16 @@ class AmbientScheduler:
         except Exception as e:
             logger.error(f"Failed to fetch local weather: {e}")
 
+    def stop(self):
+        """Requests a graceful exit of the run() loop (plan 7.3)."""
+        self._running = False
+
     async def run(self):
         """Continuous scheduler execution loop."""
         logger.info("AmbientScheduler background task started.")
-        
-        while True:
+        self._running = True
+
+        while self._running:
             now = time.time()
             
             # 1. Reminders Check (every 30 seconds)
@@ -219,11 +225,16 @@ class AmbientScheduler:
             
             # 2. Battery warnings are owned by Win32Observer (rate-limited there).
 
-            # 3. Weather Check (every 1 hour / 3600 seconds - run first check immediately)
+            # 3. Hourly housekeeping: weather refresh + DB prune
+            #    (first run immediately at startup)
             if self.last_weather_check == 0.0 or now - self.last_weather_check >= 3600.0:
                 self.last_weather_check = now
                 # Fire task asynchronously to avoid slowing other checks
                 asyncio.create_task(self.fetch_local_weather())
+                try:
+                    await self.db.prune()
+                except Exception as e:
+                    logger.error(f"Database prune failed: {e}")
             
             # 4. Tick Pomodoro session progress (every 1 second)
             self.pomodoro.tick()
@@ -253,3 +264,5 @@ class AmbientScheduler:
                     logger.error(f"Error checking IDE/workflow status: {e}")
             
             await asyncio.sleep(1.0)
+
+        logger.info("AmbientScheduler loop exited.")

@@ -63,7 +63,7 @@ class PetWindow(QWidget):
         self.pet_height = int(sprite_loader.frame_height * Config.ANIMATION_SCALE)
 
         self.is_dragging = False
-        self.is_muted = False
+        self.is_muted = Config.MUTED  # persisted preference
         self.drag_offset = QPoint()
 
         # Click/drag/double-click discrimination (audit M-2): a press is only a
@@ -78,6 +78,11 @@ class PetWindow(QWidget):
 
         # Cooldown for ambient (non-user-initiated) speech (PRD "Never Spam")
         self._last_ambient_bubble = 0.0
+
+        # Weather policy (plan 6.4): never announce at startup, at most once
+        # per session, and only after the app has been up a while
+        self._started_at = time.time()
+        self._weather_announced = False
 
         # Initialize UI traits
         self._init_window_properties()
@@ -425,10 +430,15 @@ class PetWindow(QWidget):
                 self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
 
         elif event_type == EventType.WEATHER_FETCHED:
-            city = data.get("city", "here")
-            temp = data.get("temperature", 20.0)
-            desc = data.get("description", "fine")
-            self._display_ambient_bubble(f"It's {temp}°C and {desc} in {city}!")
+            # Announce at most once per session, never during the first two
+            # minutes (the old behavior greeted every launch with a weather
+            # report — audit M-15 / PRD "Never Spam")
+            if not self._weather_announced and time.time() - self._started_at > 120.0:
+                city = data.get("city", "here")
+                temp = data.get("temperature", 20.0)
+                desc = data.get("description", "fine")
+                if self._display_ambient_bubble(f"It's {temp}°C and {desc} in {city}!"):
+                    self._weather_announced = True
 
         elif event_type == EventType.POMODORO_WORK_COMPLETE:
             self.display_speech_bubble("Work session complete! Time for a break!")
@@ -519,5 +529,6 @@ class PetWindow(QWidget):
     def closeEvent(self, event):
         self.physics_timer.stop()
         self.anim_timer.stop()
+        self._click_timer.stop()
         self.speech_bubble.close()
         super().closeEvent(event)

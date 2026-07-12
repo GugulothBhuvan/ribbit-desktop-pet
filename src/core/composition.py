@@ -8,6 +8,7 @@ Ordering rules enforced here (see AUDIT_REPORT.md AV-3/AV-4):
   3. The asyncio worker starts first only to run DB init/config overrides
      synchronously; subsystems that publish events start last.
 """
+import asyncio
 from src.config import Config
 from src.event_bus import EventBus, EventType
 from src.core.application import Application
@@ -91,11 +92,33 @@ class CompositionRoot:
         logger.info("All subsystems started.")
 
     def shutdown(self):
-        """Stops subsystems in reverse dependency order."""
+        """Stops subsystems in reverse dependency order (plan 7.1):
+        flush-producing events first, then resource closure, then the loop."""
         logger.info("Shutting down subsystems...")
+
+        # 1. Let subscribers queue their final work (telemetry flush)
         self.event_bus.publish(EventType.APPLICATION_SHUTTING_DOWN, {})
+
+        # 2. Stop event producers
         self.hotkey_listener.stop()
         self.observer.stop()
+        self.scheduler.stop()
+
+        # 3. Close network clients and the database on the worker loop
+        async def _close_resources():
+            await asyncio.sleep(0.2)  # let queued shutdown handlers run first
+            await self.orchestrator.krutrim_provider.aclose()
+            await self.orchestrator.gemini_provider.aclose()
+            await self.db.close()
+
+        future = self.application.run_async(_close_resources())
+        if future:
+            try:
+                future.result(timeout=5.0)
+            except Exception as e:
+                logger.warning(f"Resource cleanup did not finish cleanly: {e}")
+
+        # 4. Local devices, then the loop itself (drains remaining tasks)
         self.audio_recorder.cleanup()
         self.application.shutdown()
         logger.info("Shutdown complete.")

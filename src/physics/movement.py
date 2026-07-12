@@ -144,6 +144,12 @@ class MovementController:
 
     def _roll_idle_behavior(self) -> str:
         """Random chance wheel deciding what an idle pet does next."""
+        from src.config import Config
+        if Config.REDUCED_MOTION:
+            # Calm mode (PRD §15 reduced motion): stay put
+            self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
+            return PetState.IDLE
+
         roll = random.random()
         if roll < 0.4:  # 40% walk
             self.walk_direction = random.choice([-1, 1])

@@ -49,6 +49,10 @@ class Config:
     
     # Mascot Settings
     SELECTED_MASCOT = "default"
+
+    # Accessibility / behavior toggles (persisted in the settings table)
+    MUTED = False
+    REDUCED_MOTION = False  # "Calm mode": pet stays idle, no wandering/napping
     
     @classmethod
     def validate(cls):
@@ -84,7 +88,24 @@ class Config:
                 cls.SELECTED_MASCOT = rows[0]["value"]
             else:
                 cls.SELECTED_MASCOT = "default"
-                
+
+            # User preferences persisted from the context menu (plan 6.5)
+            rows = await db.execute_query("SELECT value FROM settings WHERE key = 'PET_SCALE';")
+            if rows:
+                cls.ANIMATION_SCALE = float(rows[0]["value"])
+
+            rows = await db.execute_query("SELECT value FROM settings WHERE key = 'MUTED';")
+            if rows:
+                cls.MUTED = rows[0]["value"] == "1"
+
+            rows = await db.execute_query("SELECT value FROM settings WHERE key = 'REDUCED_MOTION';")
+            if rows:
+                cls.REDUCED_MOTION = rows[0]["value"] == "1"
+
+            rows = await db.execute_query("SELECT value FROM settings WHERE key = 'SPEECH_TYPING_SPEED_MS';")
+            if rows:
+                cls.SPEECH_TYPING_SPEED_MS = int(rows[0]["value"])
+
             cls.validate()
             logger.info(f"Loaded config overrides: Provider={cls.LLM_PROVIDER}, Model={cls.KRUTRIM_MODEL}, Mascot={cls.SELECTED_MASCOT}")
         except Exception as e:

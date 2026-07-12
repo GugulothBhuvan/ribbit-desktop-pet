@@ -1,5 +1,6 @@
 import threading
 import asyncio
+import concurrent.futures
 from typing import Coroutine, Optional
 from src.utils.logger import get_logger
 
@@ -43,7 +44,7 @@ class Application:
         logger.info("Background asyncio loop thread started.")
         loop.run_forever()
 
-    def run_async(self, coro: Coroutine) -> Optional["asyncio.Future"]:
+    def run_async(self, coro: Coroutine) -> Optional[concurrent.futures.Future]:
         """Schedules a coroutine to run on the background event loop thread safely.
 
         Returns a concurrent.futures.Future (use .result(timeout) to block)."""
@@ -52,8 +53,23 @@ class Application:
             return None
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
+    async def _drain_tasks(self):
+        """Gives in-flight tasks (telemetry flush, DB writes) a moment to
+        finish, then cancels stragglers (e.g. infinite scheduler loops)."""
+        current = asyncio.current_task()
+        tasks = [t for t in asyncio.all_tasks() if t is not current]
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(tasks, timeout=2.0)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        logger.info(f"Drained {len(done)} tasks, cancelled {len(pending)}.")
+
     def shutdown(self):
-        """Cleanly stops the background loop."""
+        """Cleanly stops the background loop: drain pending work first, then
+        stop and close the loop (audit m-19)."""
         if not self.is_running:
             return
 
@@ -61,9 +77,19 @@ class Application:
         self.is_running = False
 
         if self.loop:
+            try:
+                asyncio.run_coroutine_threadsafe(self._drain_tasks(), self.loop).result(timeout=4.0)
+            except Exception as e:
+                logger.warning(f"Task drain did not complete cleanly: {e}")
             self.loop.call_soon_threadsafe(self.loop.stop)
 
         if self.loop_thread:
             self.loop_thread.join(timeout=3.0)
+
+        if self.loop and not self.loop.is_running():
+            try:
+                self.loop.close()
+            except Exception as e:
+                logger.warning(f"Error closing event loop: {e}")
 
         logger.info("Application loop shut down successfully.")

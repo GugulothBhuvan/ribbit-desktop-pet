@@ -12,6 +12,14 @@ def event_bus(qapp):
 
 @pytest.fixture
 def tmp_db(tmp_path):
-    """An isolated Database instance backed by a per-test temp file."""
+    """An isolated Database instance backed by a per-test temp file.
+    The persistent connection is closed on teardown (aiosqlite spawns a
+    non-daemon worker thread per open connection)."""
+    import asyncio
     from src.storage.db import Database
-    return Database(str(tmp_path / "test.db"))
+    db = Database(str(tmp_path / "test.db"))
+    yield db
+    try:
+        asyncio.run(db.close())
+    except Exception:
+        pass
