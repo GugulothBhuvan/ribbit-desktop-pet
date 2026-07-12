@@ -110,7 +110,7 @@ To guarantee a fluid, stutter-free 60 FPS presentation, code execution boundarie
 
 ```mermaid
 graph TD
-    subgraph GUI Thread "GUI Thread (Main PyQt6 Loop)"
+    subgraph GUI ["GUI Thread (Main PyQt6 Loop)"]
         UI["Window Manager"]
         Rdr["Rendering Engine"]
         Phys["Physics Engine (60Hz)"]
@@ -118,7 +118,7 @@ graph TD
         Vis["Vision Manager (Screenshot Capture)"]
     end
 
-    subgraph Async Thread "Async IO Worker (Task Loop)"
+    subgraph Async ["Async IO Worker (Task Loop)"]
         Sch["Scheduler"]
         Orch["AI Orchestrator"]
         Ctx["Context Engine"]
@@ -126,7 +126,7 @@ graph TD
         DB["SQLite Database (aiosqlite)"]
     end
 
-    subgraph Daemon Threads "OS Telemetry & Audio Inputs"
+    subgraph Daemon ["OS Telemetry & Audio Inputs"]
         Obs["Desktop Win32 Hook Observer"]
         Voice["Voice Recorder (PyAudio Stream)"]
     end
