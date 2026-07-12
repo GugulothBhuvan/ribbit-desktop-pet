@@ -38,6 +38,14 @@ class Config:
     # Behavior Settings
     WANDER_INTERVAL_MIN = int(os.getenv("WANDER_INTERVAL_MIN", "2"))
     WANDER_INTERVAL_MAX = int(os.getenv("WANDER_INTERVAL_MAX", "5"))
+
+    # Minimum seconds between ambient (non-user-initiated) AI invocations
+    AMBIENT_AI_COOLDOWN_SEC = float(os.getenv("AMBIENT_AI_COOLDOWN_SEC", "20"))
+
+    # Project directory to watch for git status / pytest results ("IDE sync").
+    # Empty = feature disabled. Previously these probes scanned the pet's own
+    # CWD, reporting the pet's own repo state to the LLM (audit M-9).
+    WATCH_PROJECT_DIR = os.getenv("WATCH_PROJECT_DIR", "")
     
     # Mascot Settings
     SELECTED_MASCOT = "default"

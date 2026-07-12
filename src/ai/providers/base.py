@@ -1,5 +1,21 @@
+import random
+import asyncio
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, Any
+
+# Retry policy (plan 5.2): retry timeouts/connection errors and retryable
+# HTTP statuses with exponential backoff + jitter; never retry other 4xx.
+MAX_ATTEMPTS = 3
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def is_retryable_status(status_code: int) -> bool:
+    return status_code in RETRYABLE_STATUS
+
+
+async def backoff_sleep(attempt: int):
+    """Exponential backoff with jitter: ~0.5s, ~1s between attempts."""
+    await asyncio.sleep((2 ** attempt) * 0.5 + random.uniform(0.0, 0.3))
 
 class LLMProvider(ABC):
     """Abstract interface defining the execution protocol for LLM endpoints."""

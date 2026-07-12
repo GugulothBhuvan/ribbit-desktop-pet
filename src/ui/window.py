@@ -1,8 +1,8 @@
 import time
 import random
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QBuffer, QIODevice, QElapsedTimer
-from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent, QKeyEvent
+from PyQt6.QtCore import Qt, QTimer, QPoint, QElapsedTimer
+from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent
 from src.config import Config
 from src.constants import (
     PetState, FRAME_INTERVAL_MS, CLICK_DRAG_THRESHOLD_PX, SINGLE_CLICK_DELAY_MS,
@@ -46,6 +46,7 @@ class PetWindow(QWidget):
         EventType.TESTS_PASSED,
         EventType.TESTS_FAILED,
         EventType.SPEECH_REQUESTED,
+        EventType.PTT_TOGGLED,
     ]
 
     def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader,
@@ -254,24 +255,23 @@ class PetWindow(QWidget):
         self.event_bus.publish(EventType.PET_CLICKED)
         self._trigger_interaction_loop()
 
-    def keyPressEvent(self, event: QKeyEvent):
-        """PTT: Start recording audio on Spacebar press."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            logger.info("PTT: Spacebar pressed. Starting audio recording.")
+    def _toggle_ptt(self):
+        """Global-hotkey push-to-talk toggle (plan 5.6). Replaces the old
+        focused-window Space handler, which both required focus the window is
+        designed to never take (PRD 8.6) and swallowed the user's spacebar."""
+        if not self.audio_recorder.is_recording:
+            logger.info("PTT: starting audio recording.")
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.LISTEN})
             self.event_bus.publish(EventType.VOICE_RECORD_STARTED, {})
             try:
                 self.audio_recorder.start_recording()
-                self.display_speech_bubble("Listening... (release Spacebar to stop)")
+                self.display_speech_bubble("Listening... (Ctrl+Shift+Space to stop)")
             except Exception as e:
                 logger.error(f"Audio recording failed to start: {e}")
                 self.display_speech_bubble("I couldn't reach the microphone!")
                 self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
-
-    def keyReleaseEvent(self, event: QKeyEvent):
-        """PTT: Stop recording and publish voice record stopped event on Spacebar release."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            logger.info("PTT: Spacebar released. Stopping audio recording.")
+        else:
+            logger.info("PTT: stopping audio recording.")
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
             wav_path = self.audio_recorder.stop_recording()
             self.event_bus.publish(EventType.VOICE_RECORD_STOPPED, {"wav_path": wav_path})
@@ -411,6 +411,9 @@ class PetWindow(QWidget):
             # Thread-safe path for any component to request a bubble
             self.display_speech_bubble(data.get("text", ""))
 
+        elif event_type == EventType.PTT_TOGGLED:
+            self._toggle_ptt()
+
         elif event_type == EventType.PET_DOUBLE_CLICKED:
             # Random wave or a real jump (crouch -> launch -> fall -> landing)
             act = random.choice([PetState.WAVE, PetState.CROUCH])
@@ -476,23 +479,19 @@ class PetWindow(QWidget):
         QTimer.singleShot(250, lambda: self._execute_capture(prompt, pet_state))
 
     def _execute_capture(self, prompt: str, pet_state: dict):
-        """Grabs the screen and publishes SCREEN_CAPTURED for the orchestrator."""
+        """Grabs the screen and publishes the RAW QImage for the orchestrator.
+
+        Only the grab itself runs here — downscaling and JPEG encoding happen
+        on the worker loop (audit M-10: the old full-res PNG encode stalled
+        the GUI thread for 100ms+)."""
         try:
             from PyQt6.QtWidgets import QApplication
             screen = QApplication.primaryScreen()
             if not screen:
                 raise RuntimeError("Primary monitor not found.")
 
-            # Perform screen grab
-            pixmap = screen.grabWindow(0)
-
-            # Encode as PNG bytes
-            buffer = QBuffer()
-            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-            pixmap.save(buffer, "PNG")
-            image_bytes = buffer.data().data()
-
-            logger.info(f"Screen capture completed. Byte size: {len(image_bytes)}")
+            image = screen.grabWindow(0).toImage()
+            logger.info(f"Screen captured: {image.width()}x{image.height()}")
 
             # Restore pet visibility
             self.show()
@@ -504,7 +503,7 @@ class PetWindow(QWidget):
             self.event_bus.publish(EventType.SCREEN_CAPTURED, {
                 "prompt": prompt,
                 "pet_state": pet_state,
-                "image_bytes": image_bytes
+                "image": image
             })
         except Exception as e:
             logger.error(f"Failed to capture screen: {e}")

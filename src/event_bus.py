@@ -59,6 +59,7 @@ class EventType:
     VOICE_RECORD_STARTED = "VOICE_RECORD_STARTED"
     VOICE_RECORD_STOPPED = "VOICE_RECORD_STOPPED"
     CHAT_QUERY_REQUESTED = "CHAT_QUERY_REQUESTED"
+    PTT_TOGGLED = "PTT_TOGGLED"  # Global hotkey toggled push-to-talk
 
 
 class EventBus(QObject):

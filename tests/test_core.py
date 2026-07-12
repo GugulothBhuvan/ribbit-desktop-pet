@@ -101,7 +101,7 @@ def test_gemini_multimodal_payload():
     parts = payload["contents"][0]["parts"]
     assert len(parts) == 2
     assert parts[0]["text"] == "Check this screen"
-    assert parts[1]["inlineData"]["mimeType"] == "image/png"
+    assert parts[1]["inlineData"]["mimeType"] == "image/jpeg"
     assert len(parts[1]["inlineData"]["data"]) > 0
 
 def test_gemini_key_never_in_url():

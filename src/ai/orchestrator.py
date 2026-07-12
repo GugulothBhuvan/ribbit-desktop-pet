@@ -1,12 +1,15 @@
 import os
 import re
 import asyncio
-from typing import Dict, Any
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
+from typing import Dict, Any, Optional
+from PyQt6.QtCore import QObject
+from PyQt6.QtGui import QImage
 from src.config import Config
 from src.constants import MAX_CHARACTERS
 from src.event_bus import EventBus, EventType
 from src.ai.context_engine import ContextEngine
+from src.ai.prompts import build_system_prompt
+from src.ai import vision
 from src.ai.providers.base import LLMProvider
 from src.ai.providers.gemini import GeminiProvider
 from src.ai.providers.krutrim import KrutrimProvider
@@ -16,25 +19,6 @@ from src.core.application import Application
 from src.utils.logger import get_logger
 
 logger = get_logger("AIOrchestrator")
-
-SYSTEM_PROMPT_TEMPLATE = """
-You are a tiny, animated, intelligent, and slightly sarcastic 2D desktop pet companion living on the user's screen.
-Your personality: Playful, curious, developer-centric (likes technical jokes, comments on code issues, uncommitted git files), and encouraging.
-Current environment details:
-- User's active window: {active_window}
-- System time: {current_time}
-- Battery level: {battery_percent}
-- Pet physical state: {pet_active_state}
-- Git status: {git_uncommitted} uncommitted files, last commit: "{git_last_commit}"
-- Pytest run outcome: {recent_test_outcome} ({failed_tests_count} failed tests)
-
-CRITICAL RULES:
-1. Keep your reply extremely short: strictly under 150 characters (approx. 20 words).
-2. Avoid generic chatbot pleasantries. Answer directly in character.
-3. Be witty, encouraging, or tease the user playfully if they are working too long or compiling code.
-4. Keep the tone friendly. Never be offensive.
-5. Reply in plain text only: no markdown, no bullet lists, no code blocks.
-"""
 
 
 def sanitize_chunk(text: str) -> str:
@@ -82,54 +66,16 @@ def extract_memory_facts(user_msg: str) -> Dict[str, str]:
         facts["coding_pref"] = pref_match.group(1).strip()
     return facts
 
-class LLMStreamWorker(QThread):
-    """Background worker thread to run asynchronous HTTP streaming to avoid GUI freezes.
-
-    Signal names deliberately avoid QThread's built-in `finished` signal —
-    shadowing it silently breaks delivery of the response payload."""
-    chunk_received = pyqtSignal(str)
-    stream_finished = pyqtSignal(str)
-    stream_error = pyqtSignal(str)
-
-    def __init__(self, provider: LLMProvider, prompt: str, context: Dict[str, Any]):
-        super().__init__()
-        self.provider = provider
-        self.prompt = prompt
-        self.context = context
-
-    def run(self):
-        try:
-            # Setup thread-local async event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._execute_stream())
-            loop.close()
-        except Exception as e:
-            logger.error(f"Error in LLMStreamWorker: {e}")
-            self.stream_error.emit(str(e))
-
-    async def _execute_stream(self):
-        full_response = ""
-        async for raw_chunk in self.provider.stream(self.prompt, self.context):
-            chunk = sanitize_chunk(raw_chunk)
-            if not chunk:
-                continue
-            chunk, is_final = clamp_stream_text(len(full_response), chunk)
-            if chunk:
-                full_response += chunk
-                self.chunk_received.emit(chunk)
-            if is_final:
-                break
-        self.stream_finished.emit(full_response.strip())
 
 class AIOrchestrator(QObject):
     """
-    Coordinates context gathering, database history extraction, system prompts preparation,
-    LLM API dispatch via worker threads, and event propagation.
+    Coordinates context gathering, database history extraction, system prompt
+    preparation, LLM streaming, and event propagation.
 
-    Constructed once by the CompositionRoot on the GUI thread. It is the SINGLE
-    consumer of SCREEN_CAPTURED (the window owns the capture itself) — this
-    prevents the previous double-capture design.
+    Streaming runs as an async task on the persistent worker loop and reports
+    progress by publishing events (the bus routes them thread-safely). The
+    previous design spawned a QThread per query, whose signal connections were
+    fragile across threads and whose overlapping instances crashed Qt.
     """
 
     SUBSCRIBED_EVENTS = [
@@ -153,10 +99,7 @@ class AIOrchestrator(QObject):
         self.conv_repo = ConversationRepository(db)
         self.memory_repo = MemoryRepository(db)
 
-        self.worker = None
-        # Single in-flight query guard (audit M-6 / plan 3.5): overlapping
-        # queries previously overwrote the running QThread and interleaved
-        # chunks into one bubble.
+        # Single in-flight query guard (audit M-6 / plan 3.5)
         self._query_in_flight = False
 
         for event_type in self.SUBSCRIBED_EVENTS:
@@ -167,11 +110,11 @@ class AIOrchestrator(QObject):
         if event_type == EventType.SCREEN_CAPTURED:
             prompt = data.get("prompt", "Analyze my screen.")
             pet_state = data.get("pet_state", {})
-            image_bytes = data.get("image_bytes")
-            if image_bytes:
-                self.handle_user_query_with_image(prompt, pet_state, image_bytes)
+            image = data.get("image")
+            if isinstance(image, QImage) and not image.isNull():
+                self.handle_user_query_with_image(prompt, pet_state, image)
             else:
-                logger.warning("SCREEN_CAPTURED event carried no image bytes; ignoring.")
+                logger.warning("SCREEN_CAPTURED event carried no usable image; ignoring.")
 
         elif event_type == EventType.VOICE_RECORD_STOPPED:
             wav_path = data.get("wav_path", "")
@@ -234,97 +177,75 @@ class AIOrchestrator(QObject):
             return
 
         self._query_in_flight = True
-
-        # Dispatch notification to transition to thinking state
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
+        self.application.run_async(self._stream_query(user_prompt, pet_state))
 
-        # We start a task to load database context and spin up LLM worker
-        self.application.run_async(self._prepare_and_run_worker(user_prompt, pet_state))
+    def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any], image: QImage):
+        """Initiates the AI response pipeline with a raw screen capture attached.
 
-    def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any], image_bytes: bytes):
-        """Initiates the AI response pipeline with screenshot bytes included."""
+        The heavy downscale/JPEG encode happens on the worker loop, never here."""
         if self._query_in_flight:
             logger.info("Query already in flight; dropping vision query.")
             return
+        if not self.get_active_provider().supports_vision():
+            logger.info("Active model cannot process images; informing user.")
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {
+                "text": "My current AI model can't see screenshots. Pick a vision model in my menu!"
+            })
+            return
+
         logger.info(f"Handling user query with screen capture: '{user_prompt}'")
         self._query_in_flight = True
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
-        self.application.run_async(self._prepare_and_run_worker(user_prompt, pet_state, image_bytes))
+        self.application.run_async(self._stream_query(user_prompt, pet_state, image))
 
-    async def _prepare_and_run_worker(self, user_prompt: str, pet_state: Dict[str, Any], image_bytes: bytes = None):
+    async def _stream_query(self, user_prompt: str, pet_state: Dict[str, Any],
+                            image: Optional[QImage] = None):
+        """Full query pipeline on the worker loop: context -> prompt -> stream."""
         try:
-            # 1. Gather active context
-            context = self.context_engine.assemble_context(pet_state)
-            if image_bytes:
-                context["screenshot_bytes"] = image_bytes
+            loop = asyncio.get_running_loop()
 
-            # 2. Extract recent conversation logs
-            history = await self.conv_repo.get_recent_messages(limit=10)
-            context["conversation_history"] = history
+            # 1. Gather system context (blocking subprocess probes) off the loop
+            context = await loop.run_in_executor(
+                None, self.context_engine.assemble_context, pet_state)
 
-            # 3. Pull long term memories
+            # 2. Screenshot post-processing (downscale + JPEG) on this thread,
+            #    not the GUI thread (audit M-10)
+            if image is not None:
+                context["screenshot_bytes"] = await loop.run_in_executor(
+                    None, vision.process_capture, image)
+
+            # 3. Conversation history (PRD §13: last 20 messages)
+            context["conversation_history"] = await self.conv_repo.get_recent_messages(limit=20)
+
+            # 4. Long-term memories + system prompt
             facts = await self.memory_repo.get_all_facts()
-            context["long_term_memories"] = facts
+            context["system_prompt"] = build_system_prompt(context, facts)
 
-            # 4. Generate system prompt (omit unavailable telemetry — a
-            #    desktop PC reports battery None, never a number)
-            battery = context.get("battery_percent")
-            battery_display = f"{battery}%" if battery is not None else "n/a (desktop)"
-            system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-                active_window=context["active_window"],
-                current_time=context["current_time"],
-                battery_percent=battery_display,
-                pet_active_state=context["pet_active_state"],
-                git_uncommitted=context["git_uncommitted_count"],
-                git_last_commit=context["git_last_commit"],
-                recent_test_outcome=context["test_outcome"],
-                failed_tests_count=context["test_failed_count"]
-            )
-
-            # If user facts exist, append them to the system prompt context
-            if facts:
-                system_prompt += f"\nKnown user preferences/facts: {facts}\n"
-
-            context["system_prompt"] = system_prompt
-
-            # 5. Launch LLM worker thread
+            # 5. Stream, sanitize, and clamp to the PRD character budget
             provider = self.get_active_provider()
-            # Connect ONLY bound methods of this QObject: their delivery is
-            # queued to the orchestrator's (GUI) thread. A lambda connected
-            # here would be bound to the asyncio thread, which has no Qt event
-            # loop, and would never fire.
-            self.worker = LLMStreamWorker(provider, user_prompt, context)
-            self.worker.chunk_received.connect(self._on_chunk_received)
-            self.worker.stream_finished.connect(self._on_stream_finished)
-            self.worker.stream_error.connect(self._on_error_received)
-            self.worker.start()
+            full_response = ""
+            async for raw_chunk in provider.stream(user_prompt, context):
+                chunk = sanitize_chunk(raw_chunk)
+                if not chunk:
+                    continue
+                chunk, is_final = clamp_stream_text(len(full_response), chunk)
+                if chunk:
+                    full_response += chunk
+                    self.event_bus.publish(EventType.LLM_RESPONSE_CHUNK, {"text": chunk})
+                if is_final:
+                    break
+
+            full_response = full_response.strip()
+            logger.info(f"LLM query finished. Complete response: '{full_response}'")
+            await self._save_interaction(user_prompt, full_response)
+            self.event_bus.publish(EventType.LLM_RESPONSE_RECEIVED, {"text": full_response})
 
         except Exception as e:
-            logger.error(f"Failed to prepare LLM query: {e}")
+            logger.error(f"LLM query failed: {e}")
+            self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "LLM request failed."})
+        finally:
             self._query_in_flight = False
-            self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "Failed to prepare query."})
-
-    def _on_chunk_received(self, chunk: str):
-        self.event_bus.publish(EventType.LLM_RESPONSE_CHUNK, {"text": chunk})
-
-    def _on_stream_finished(self, text: str):
-        prompt = self.worker.prompt if self.worker else ""
-        self._on_generation_finished(prompt, text)
-
-    def _on_error_received(self, error_msg: str):
-        logger.error(f"LLM request error: {error_msg}")
-        self._query_in_flight = False
-        self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "LLM request failed."})
-
-    def _on_generation_finished(self, prompt: str, complete_response: str):
-        logger.info(f"LLM query finished. Complete response: '{complete_response}'")
-        self._query_in_flight = False
-
-        # Save messages to database history in background
-        self.application.run_async(self._save_interaction(prompt, complete_response))
-
-        # Broadcast completed response
-        self.event_bus.publish(EventType.LLM_RESPONSE_RECEIVED, {"text": complete_response})
 
     async def _save_interaction(self, user_msg: str, assistant_msg: str):
         try:

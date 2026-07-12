@@ -101,8 +101,9 @@ class AmbientScheduler:
         self.prev_test_failed_count = 0
         
         # Stateful Event-Driven AI Scheduler parameters
+        from src.config import Config
         self.last_ai_invocation = 0.0
-        self.ai_cooldown_seconds = 20.0
+        self.ai_cooldown_seconds = Config.AMBIENT_AI_COOLDOWN_SEC
         self.pending_low_priority_events = []
         
         # Subscribe to Event Bus to act as the central AI Scheduler decision engine
@@ -227,8 +228,10 @@ class AmbientScheduler:
             # 4. Tick Pomodoro session progress (every 1 second)
             self.pomodoro.tick()
             
-            # 5. IDE & Workflow Status check (every 5 seconds)
-            if now - self.last_ide_check >= 5.0:
+            # 5. IDE & Workflow Status check (every 5 seconds; only when a
+            #    project directory is configured — see Config.WATCH_PROJECT_DIR)
+            from src.config import Config
+            if Config.WATCH_PROJECT_DIR and now - self.last_ide_check >= 5.0:
                 self.last_ide_check = now
                 try:
                     test_ctx = self.context_engine.get_test_context()

@@ -42,38 +42,58 @@ class ContextEngine:
         percent, _ = get_battery_status()
         return percent
 
+    _GIT_UNAVAILABLE = {"git_available": False, "uncommitted_files_count": 0, "last_commit_message": "unknown"}
+
     def get_git_context(self) -> Dict[str, Any]:
-        """Gathers local Git status details using subprocess checks."""
+        """Git status of the user's configured project (Config.WATCH_PROJECT_DIR).
+
+        Disabled (reports unavailable) when no project dir is configured —
+        probing the pet's own CWD told the LLM about the pet's repo, not the
+        user's work (audit M-9)."""
+        from src.config import Config
+        project_dir = Config.WATCH_PROJECT_DIR
+        if not project_dir or not os.path.isdir(project_dir):
+            return dict(self._GIT_UNAVAILABLE)
+
+        # Suppress console window flashes from subprocess spawns on Windows
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         try:
             res = subprocess.run(
                 ["git", "status", "--porcelain"],
-                capture_output=True, text=True, timeout=0.5
+                capture_output=True, text=True, timeout=1.0,
+                cwd=project_dir, creationflags=creationflags
             )
             if res.returncode != 0:
-                return {"git_available": False, "uncommitted_files_count": 0, "last_commit_message": "unknown"}
-            
+                return dict(self._GIT_UNAVAILABLE)
+
             lines = res.stdout.strip().split("\n")
             uncommitted_count = len([l for l in lines if l])
-            
+
             res_log = subprocess.run(
                 ["git", "log", "-1", "--pretty=%s"],
-                capture_output=True, text=True, timeout=0.5
+                capture_output=True, text=True, timeout=1.0,
+                cwd=project_dir, creationflags=creationflags
             )
             last_commit = res_log.stdout.strip() if res_log.returncode == 0 else "unknown"
-            
+
             return {
                 "git_available": True,
                 "uncommitted_files_count": uncommitted_count,
                 "last_commit_message": last_commit
             }
         except Exception:
-            return {"git_available": False, "uncommitted_files_count": 0, "last_commit_message": "unknown"}
+            return dict(self._GIT_UNAVAILABLE)
 
     def get_test_context(self) -> Dict[str, Any]:
-        """Inspects .pytest_cache folder to extract recent testing statistics."""
+        """Inspects the watched project's .pytest_cache for recent test results.
+        Disabled when WATCH_PROJECT_DIR is unset."""
+        from src.config import Config
+        project_dir = Config.WATCH_PROJECT_DIR
+        if not project_dir or not os.path.isdir(project_dir):
+            return {"recent_test_run_outcome": "unknown", "failed_tests_count": 0, "is_fresh": False}
         try:
             import json
-            last_failed_path = os.path.join(".pytest_cache", "v", "cache", "lastfailed")
+            last_failed_path = os.path.join(project_dir, ".pytest_cache", "v", "cache", "lastfailed")
             if os.path.exists(last_failed_path):
                 mtime = os.path.getmtime(last_failed_path)
                 is_fresh = (time.time() - mtime) < 60.0
@@ -88,7 +108,7 @@ class ContextEngine:
                         "is_fresh": is_fresh
                     }
                     
-            nodeids_path = os.path.join(".pytest_cache", "v", "cache", "nodeids")
+            nodeids_path = os.path.join(project_dir, ".pytest_cache", "v", "cache", "nodeids")
             if os.path.exists(nodeids_path):
                 mtime = os.path.getmtime(nodeids_path)
                 is_fresh = (time.time() - mtime) < 60.0

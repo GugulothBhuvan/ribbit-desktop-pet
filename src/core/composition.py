@@ -64,9 +64,11 @@ class CompositionRoot:
         self.scheduler = AmbientScheduler(self.event_bus, self.db, self.context_engine)
         self.telemetry = TelemetryTracker(self.event_bus, self.db, self.application)
 
-        # 6. Plugins and OS observer
+        # 6. Plugins, OS observer, and the global PTT hotkey
         self.plugin_manager = PluginManager(self.event_bus)
         self.observer = Win32Observer(self.event_bus)
+        from src.observer.hotkey import GlobalHotkeyListener
+        self.hotkey_listener = GlobalHotkeyListener(self.event_bus)
 
         # 7. Main window last — every subscriber above is registered before
         #    the first event can possibly fire.
@@ -82,6 +84,7 @@ class CompositionRoot:
         self.plugin_manager.load_plugins()
         self.telemetry.start()
         self.observer.start()
+        self.hotkey_listener.start()
         self.application.run_async(self.scheduler.run())
         self.window.show()
         self.event_bus.publish(EventType.APPLICATION_STARTED, {})
@@ -91,6 +94,7 @@ class CompositionRoot:
         """Stops subsystems in reverse dependency order."""
         logger.info("Shutting down subsystems...")
         self.event_bus.publish(EventType.APPLICATION_SHUTTING_DOWN, {})
+        self.hotkey_listener.stop()
         self.observer.stop()
         self.audio_recorder.cleanup()
         self.application.shutdown()
