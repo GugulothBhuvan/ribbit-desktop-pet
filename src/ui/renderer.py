@@ -1,7 +1,8 @@
 from typing import List, Optional
-from PyQt6.QtGui import QPainter, QPixmap, QTransform
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QPainter, QPixmap, QTransform, QPen, QColor
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
 from src.animation.sprite_loader import SpriteLoader
+from src.constants import PetState
 from src.utils.logger import get_logger
 
 logger = get_logger("SpriteRenderer")
@@ -92,3 +93,32 @@ class SpriteRenderer(QObject):
         pixmap = self.get_current_frame()
         if not pixmap.isNull():
             painter.drawPixmap(0, 0, pixmap)
+            if self.current_state == PetState.SLEEP:
+                self._draw_sleep_zs(painter, pixmap.width())
+
+    # Growing stroke sizes (px) for the floating "Z z z"
+    _Z_SIZES = [8, 11, 14]
+
+    def _draw_sleep_zs(self, painter: QPainter, frame_width: int):
+        """Floating 'Zzz' rising beside the sleeping pet's head. The sleep
+        animation repeats one eyes-closed frame 3x in metadata purely so
+        frame_index cycles 0..2 and animates the number of Zs.
+
+        The Zs are drawn as vector strokes (not font glyphs) so they render
+        identically everywhere, including fontless offscreen test runs."""
+        count = (self.frame_index % 3) + 1
+        base_x = int(frame_width * 0.62)
+        base_y = 52  # topmost Z stays inside the frame
+
+        for i in range(count):
+            size = self._Z_SIZES[i]
+            x = base_x + i * 12
+            y = base_y - i * 17
+            # Dark halo pass then white pass so the Z reads on any wallpaper
+            for color, width in ((QColor(35, 35, 45), 4), (QColor(255, 255, 255), 2)):
+                pen = QPen(color, width)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawLine(x, y, x + size, y)                  # top bar
+                painter.drawLine(x + size, y, x, y + size)           # diagonal
+                painter.drawLine(x, y + size, x + size, y + size)    # bottom bar

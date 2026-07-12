@@ -112,7 +112,7 @@ def test_per_frame_duration_from_metadata(qapp):
     from src.animation.sprite_loader import SpriteLoader
     loader = SpriteLoader()
     assert loader.get_frame_duration("idle", 0) == 100      # metadata duration_ms
-    assert loader.get_frame_duration("sleep", 1) == 1200
+    assert loader.get_frame_duration("sleep", 1) == 700
     assert loader.get_frame_duration("idle", 999) == 100    # fallback: 1000/fps
 
 def test_single_frame_animation_reports_no_change(qapp):

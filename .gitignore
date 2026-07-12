@@ -16,3 +16,5 @@ venv/
 # OS / editor
 Thumbs.db
 .DS_Store
+frame_map.png
+sleep_drag_preview.png
