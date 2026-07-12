@@ -141,6 +141,9 @@ class StateMachine:
             if finished_state == self._current_state:
                 if finished_state == PetState.LANDING:
                     self.set_state(PetState.IDLE)
+                elif finished_state == PetState.CROUCH:
+                    # Jump sequence: crouch -> launch -> fall -> landing
+                    self.set_state(PetState.LAUNCH)
                 elif finished_state == PetState.LAUNCH:
                     self.set_state(PetState.FALL)
                 elif finished_state == PetState.WAVE:

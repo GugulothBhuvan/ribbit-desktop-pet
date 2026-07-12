@@ -63,17 +63,18 @@ class CollisionResolver:
             y = top_wall
             vy = 0.0
             
-        # Resolve wall collision (bounce)
+        # Resolve wall collision (bounce). Velocities are px/s; kill bounces
+        # slower than 20 px/s so the pet doesn't jitter against walls.
         if x <= left_wall:
             x = left_wall
             vx = -vx * BOUNCE_COEFFICIENT
-            if abs(vx) < 0.5:
+            if abs(vx) < 20.0:
                 vx = 0.0
             collided_wall = True
         elif x >= right_wall:
             x = right_wall
             vx = -vx * BOUNCE_COEFFICIENT
-            if abs(vx) < 0.5:
+            if abs(vx) < 20.0:
                 vx = 0.0
             collided_wall = True
             

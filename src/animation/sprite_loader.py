@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QTimer
 from src.config import Config
@@ -86,25 +86,36 @@ class SpriteLoader:
             self.scale_factor = scale
             self._animation_cache.clear()
 
+    def touch(self, animation_name: str):
+        """Marks an animation as recently used so the stale-cache purge never
+        evicts the animation currently being rendered (audit M-7)."""
+        self._last_accessed[animation_name] = time.time()
+
     def get_animation_frames(self, animation_name: str) -> List[QPixmap]:
-        """Gets sliced and scaled frames for the specified animation name."""
+        """Gets sliced and scaled frames for the specified animation name.
+
+        Missing animations fall back to the idle frames (TRD §12) so a bad or
+        incomplete sprite pack can never render the pet invisible."""
         current_time = time.time()
         self._last_accessed[animation_name] = current_time
-        
+
         # Return from cache if hit
         if animation_name in self._animation_cache:
             return self._animation_cache[animation_name]
 
         # Slicing and scaling frames from sheet
         logger.info(f"Cache miss: Slicing and scaling animation '{animation_name}'")
-        
+
         if not self.sheet_pixmap or not self.metadata:
             logger.warning("Sprite sheet or metadata not initialized, returning empty frame list.")
             return []
 
         anim_data = self.metadata.get("animations", {}).get(animation_name)
         if not anim_data:
-            logger.error(f"Animation '{animation_name}' not defined in metadata.json")
+            if animation_name != "idle":
+                logger.warning(f"Animation '{animation_name}' not in metadata.json; falling back to idle frames.")
+                return self.get_animation_frames("idle")
+            logger.error("Animation 'idle' not defined in metadata.json — nothing to render.")
             return []
 
         frames = []
@@ -131,19 +142,29 @@ class SpriteLoader:
         self._animation_cache[animation_name] = frames
         return frames
 
+    def _anim_data(self, animation_name: str) -> dict:
+        """Metadata for an animation, following the idle fallback."""
+        animations = self.metadata.get("animations", {}) if self.metadata else {}
+        return animations.get(animation_name) or animations.get("idle", {})
+
     def get_animation_fps(self, animation_name: str) -> int:
         """Gets frames per second for specified animation."""
-        if not self.metadata:
-            return 8
-        anim_data = self.metadata.get("animations", {}).get(animation_name, {})
-        return anim_data.get("fps", 8)
+        return self._anim_data(animation_name).get("fps", 8)
 
     def is_looping(self, animation_name: str) -> bool:
         """Determines if the animation loops."""
-        if not self.metadata:
-            return True
-        anim_data = self.metadata.get("animations", {}).get(animation_name, {})
-        return anim_data.get("loop", True)
+        return self._anim_data(animation_name).get("loop", True)
+
+    def get_frame_duration(self, animation_name: str, frame_index: int) -> int:
+        """Per-frame display duration in ms (metadata duration_ms honored;
+        falls back to 1000/fps)."""
+        anim_data = self._anim_data(animation_name)
+        frames = anim_data.get("frames", [])
+        if 0 <= frame_index < len(frames):
+            duration = frames[frame_index].get("duration_ms")
+            if duration:
+                return int(duration)
+        return int(1000 / max(anim_data.get("fps", 8), 1))
 
     def cleanup_stale_caches(self):
         """Flushes cached frames for animations that haven't been requested in over 60 seconds."""

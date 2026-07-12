@@ -1,12 +1,13 @@
 import time
 import random
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QBuffer, QIODevice
+from PyQt6.QtCore import Qt, QTimer, QPoint, QBuffer, QIODevice, QElapsedTimer
 from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent, QKeyEvent
 from src.config import Config
 from src.constants import (
     PetState, FRAME_INTERVAL_MS, CLICK_DRAG_THRESHOLD_PX, SINGLE_CLICK_DELAY_MS,
-    MIN_WANDER_TIME, MAX_WANDER_TIME
+    MIN_WANDER_TIME, MAX_WANDER_TIME, MAX_PHYSICS_DT,
+    JUMP_IMPULSE, JUMP_FORWARD_SPEED
 )
 from src.event_bus import EventBus, EventType
 from src.physics.movement import MovementController
@@ -97,10 +98,16 @@ class PetWindow(QWidget):
             self.event_bus.subscribe(event_type, self.on_event, executor="gui")
 
         # Timer loops
-        # 1. Main 60Hz physics & rendering update loop
+        # 1. Main 60Hz physics loop. PreciseTimer + a measured dt: default
+        #    CoarseTimer drifts ±5% and the old code assumed exactly 60Hz.
         self.physics_timer = QTimer(self)
+        self.physics_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.physics_timer.timeout.connect(self._on_physics_tick)
         self.physics_timer.start(FRAME_INTERVAL_MS)
+        self._physics_clock = QElapsedTimer()
+        self._physics_clock.start()
+        self._last_moved_pos = QPoint(-1, -1)
+        self._last_direction = 1
 
         # 2. Animation frame tick timer (FPS-dependent, dynamically scaled)
         self.anim_timer = QTimer(self)
@@ -173,9 +180,9 @@ class PetWindow(QWidget):
         return True
 
     def _update_animation_fps(self, state: str):
-        fps = self.sprite_loader.get_animation_fps(state)
-        # Convert FPS to milliseconds interval
-        interval = int(1000 / max(fps, 1))
+        # Honor the metadata's per-frame duration (frame 0 to start; the
+        # animation tick re-adjusts as frames advance)
+        interval = self.sprite_loader.get_frame_duration(state, 0)
         self.anim_timer.start(interval)
 
     # --- Mouse Event Handlers ---
@@ -277,10 +284,9 @@ class PetWindow(QWidget):
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
 
             # Determine direction (face mouse)
-            if event.position().x() < self.width() / 2:
-                self.renderer.set_direction(-1) # Face left
-            else:
-                self.renderer.set_direction(1) # Face right
+            direction = -1 if event.position().x() < self.width() / 2 else 1
+            if self.renderer.set_direction(direction):
+                self.update()
 
     def leaveEvent(self, event):
         """Resume walking if the hover interrupted a walk."""
@@ -295,31 +301,57 @@ class PetWindow(QWidget):
 
     # --- Game Loops Ticks ---
     def _on_physics_tick(self):
-        """60Hz Loop: Updates position vectors and resolves collisions."""
+        """60Hz Loop: Updates position vectors and resolves collisions.
+
+        Repaints/moves only when something visible actually changed — the
+        unconditional 60Hz repaint was the single largest idle-CPU cost
+        (audit perf #1)."""
+        dt = min(self._physics_clock.restart() / 1000.0, MAX_PHYSICS_DT)
+
         new_x, new_y, recommended_state = self.physics.update(
-            self.renderer.current_state, self.is_dragging
+            self.renderer.current_state, self.is_dragging, dt
         )
 
-        # Apply physics coordinate adjustments
+        needs_repaint = False
+
+        # Apply physics coordinate adjustments only on real movement
         if not self.is_dragging:
-            self.move(int(new_x), int(new_y))
-            self.speech_bubble.position_bubble(self.pos(), self.pet_width)
+            new_pos = QPoint(int(new_x), int(new_y))
+            if new_pos != self._last_moved_pos:
+                self._last_moved_pos = new_pos
+                self.move(new_pos)
+                self.speech_bubble.position_bubble(self.pos(), self.pet_width)
+                needs_repaint = True
 
         # Update movement direction in renderer
         if self.renderer.current_state == PetState.WALK:
-            self.renderer.set_direction(self.physics.walk_direction)
+            if self.renderer.set_direction(self.physics.walk_direction):
+                needs_repaint = True
 
         # Trigger state updates from physics recommendation
         if recommended_state != self.renderer.current_state:
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": recommended_state})
+            needs_repaint = True
 
-        self.update()  # Repaints widget
+        if needs_repaint:
+            self.update()
 
     def _on_animation_tick(self):
-        """Advances active frame."""
-        self.renderer.advance_frame()
+        """Advances active frame; repaints only when the frame changed."""
+        if self.renderer.advance_frame():
+            self.update()
+        # Honor per-frame durations from metadata
+        interval = self.sprite_loader.get_frame_duration(
+            self.renderer.current_state, self.renderer.frame_index)
+        if interval != self.anim_timer.interval():
+            self.anim_timer.start(interval)
 
     def _on_animation_finished(self, state: str):
+        if state == PetState.LAUNCH:
+            # Jump: give the pet its upward + forward impulse before the
+            # state machine flips LAUNCH -> FALL (gravity shapes the arc)
+            self.physics.vy = JUMP_IMPULSE
+            self.physics.vx = JUMP_FORWARD_SPEED * self.renderer.direction
         self.event_bus.publish(EventType.ANIMATION_FINISHED, {"state": state})
 
     def _on_bubble_dismissed(self):
@@ -380,8 +412,8 @@ class PetWindow(QWidget):
             self.display_speech_bubble(data.get("text", ""))
 
         elif event_type == EventType.PET_DOUBLE_CLICKED:
-            # Play random wave jump
-            act = random.choice([PetState.WAVE, PetState.FALL])
+            # Random wave or a real jump (crouch -> launch -> fall -> landing)
+            act = random.choice([PetState.WAVE, PetState.CROUCH])
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": act})
 
         elif event_type == EventType.BATTERY_WARNING:
