@@ -294,19 +294,14 @@ To keep the application ambient and prevent it from competing with active compil
 
 ## 🔍 Current Status & Audit Findings
 
-> [!WARNING]
-> **Active Development Warning & Re-Architecture Phase**
-> A recent engineering audit identified structural issues currently being addressed before a production release:
+> [!NOTE]
+> **Stabilization complete (2026-07-12).** All critical findings from the engineering audit (`AUDIT_REPORT.md`) have been resolved through the phased plan in `MVP_PLAN.md`. Resolved-conflict decisions live in `docs/DECISIONS.md`.
 
-1. **Event Bus Thread Defect (AV-1):** Background-thread subscribers (e.g. state machine, scheduler, and telemetry) do not receive event notifications because they run on an `asyncio` event loop instead of a Qt event dispatcher. (This prevents walking, falling gravity, and telemetry database writes at runtime; the pet currently hangs in mid-air).
-2. **AI Orchestrator Wiring (AV-2):** `AIOrchestrator` is not instantiated at startup, disabling chat query handlers and leading to `AttributeError` when triggering screenshot captures.
-3. **Singleton Thread Races (AV-3/AV-4):** Concurrent initialization of components (`SpriteLoader`, `EventBus`) from separate threads causes non-deterministic startup races.
-4. **Security Corrections (C-5):**
-   - **Do not log API keys:** Ensure API keys are loaded via the header (`x-goog-api-key`) rather than embedded in HTTP URL strings, which can leak into logs and error exceptions.
-   - **Sanitize logging:** Do not output active workspace window titles at `INFO` level to prevent credentials/sensitive filenames from writing to `app.log`.
-5. **Performance Improvements:**
-   - Paint events currently execute at a continuous 60Hz loop even when the mascot is static. We are moving to a dirty-region / frame-advance repaint trigger.
-   - Screen capture must be downscaled (≤1024px) and compressed off the main GUI thread to avoid visual frames dropping.
+1. ✅ **Event Bus Thread Defect (AV-1):** Rebuilt with per-event-type subscriptions and explicit executors (`gui` via queued Qt signal, `async` via `call_soon_threadsafe`). State machine, scheduler, and telemetry all receive events; gravity, walking, and telemetry writes verified end-to-end.
+2. ✅ **AI Orchestrator Wiring (AV-2):** A `CompositionRoot` (`src/core/composition.py`) builds the full object graph on the GUI thread; all singletons removed in favor of constructor injection. Chat, voice, and vision pipelines verified live.
+3. ✅ **Singleton Thread Races (AV-3/AV-4):** `QApplication` is created first; every Qt object is constructed on the GUI thread; the worker loop hosts no Qt objects.
+4. ✅ **Security (C-5):** Gemini key sent via `x-goog-api-key` header; no raw exception text reaches speech bubbles or logs; window titles logged at `DEBUG` only; rotating log files; PTT audio recorded to the OS temp dir and deleted after transcription.
+5. ✅ **Performance:** Repaints fire only on visible change (frame/position/facing); screen captures are downscaled (≤1024px) and JPEG-encoded on the worker loop. **Measured via `tools/soak_monitor.py`: idle CPU 0.23% avg / 0.41% max, RSS 85 MB** — within all budgets above.
 
 ---
 
@@ -348,9 +343,13 @@ To keep the application ambient and prevent it from competing with active compil
    ```
 
 5. Edit `.env` to configure your API keys:
-   - `GEMINI_API_KEY` (Gemini API access)
-   - `KRUTRIM_API_KEY` (Alternative LLM provider)
+   - `KRUTRIM_API_KEY` (default LLM provider; default model `gemma-4-E4B-it` — supports vision)
+   - `GEMINI_API_KEY` (alternative provider, `LLM_PROVIDER=gemini`)
    - `DEEPGRAM_API_KEY` (Audio ASR transcription service)
+
+   Optional settings:
+   - `WATCH_PROJECT_DIR` — absolute path to *your* project; enables the pet's git-status and pytest commentary. Leave unset to disable those probes entirely.
+   - `AMBIENT_AI_COOLDOWN_SEC` — minimum seconds between ambient AI invocations (default `20`).
 
 ### Running the App
 
@@ -360,10 +359,28 @@ Start the main application loop:
 python -m src.main
 ```
 
+Only one instance can run at a time (a named mutex guards the shared database).
+
+### Controls
+
+| Action | Effect |
+| :--- | :--- |
+| **Left-click** | Witty AI chat in a speech bubble |
+| **Double-click** | Wave or a full crouch→launch→landing jump |
+| **Drag & release** | Throw with momentum; gravity takes over |
+| **Right-click** | Menu: mascot, AI model, scale, typing speed, Calm Mode, reminders, Pomodoro, mute |
+| **`Ctrl+Shift+Space`** (global) | Toggle push-to-talk voice input (Deepgram) |
+
 ### Running Tests
 
-Execute the test suite to verify module components:
+Execute the test suite (unit + the IT-1 end-to-end integration test):
 
 ```bash
 pytest
+```
+
+Measure runtime resource usage against the PRD budgets:
+
+```bash
+python tools/soak_monitor.py --minutes 5 --offscreen --no-api
 ```

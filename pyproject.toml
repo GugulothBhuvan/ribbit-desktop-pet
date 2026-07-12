@@ -1,0 +1,28 @@
+[project]
+name = "desk-pet"
+version = "0.9.0"
+description = "Ambient AI desktop companion: a living 2D pet with physics, memory, voice, and screen understanding"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.5.0",
+    "Pillow>=9.5.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=1.0.0",
+    "aiosqlite>=0.19.0",
+    "pyaudio>=0.2.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.3.0",
+    "pytest-qt>=4.2.0",
+    "pytest-asyncio>=0.21.0",
+    "psutil>=5.9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+# faulthandler prints handled SEH exceptions (RPC_E_WRONG_THREAD 0x8001010d)
+# raised by Win32 probes running on executor threads — pure noise on Windows.
+addopts = "-p no:faulthandler"

@@ -1,10 +1,16 @@
-import os
+"""Debug sprite-sheet generator (dev tool, not shipped).
+
+Generates a placeholder 10x6 sheet matching the CURRENT metadata geometry
+(138x191 frames — the old 128x128 output silently mismatched metadata.json,
+audit m-21). Output goes to ./debug_sprite_sheet.png; wire it up by editing
+assets/sprites/<name>/metadata.json's `sprite_sheet` key.
+"""
 from PIL import Image, ImageDraw
 
 def generate_debug_sprite_sheet():
-    # Frame configurations
-    frame_w = 128
-    frame_h = 128
+    # Frame configurations — MUST match assets/sprites/default/metadata.json
+    frame_w = 138
+    frame_h = 191
     cols = 10
     rows = 6
     sheet_w = frame_w * cols
@@ -41,8 +47,7 @@ def generate_debug_sprite_sheet():
             )
             
             # Calculate coordinates for drawing the pet body inside the frame
-            # Default center: (x_offset + 64, y_offset + 64)
-            cx, cy = x_offset + 64, y_offset + 64
+            cx, cy = x_offset + frame_w // 2, y_offset + frame_h // 2
             r = 30
             
             # Squish or stretch based on state/frame to simulate animation
@@ -132,10 +137,9 @@ def generate_debug_sprite_sheet():
             text = f"{name} {col_idx}"
             draw.text((x_offset + 5, y_offset + 5), text, fill=(0, 0, 0, 180))
 
-    # Save sprite sheet
-    os.makedirs("assets/sprites/default", exist_ok=True)
-    sheet.save("assets/sprites/default/sprite_sheet.png")
-    print("Debug sprite sheet generated successfully at assets/sprites/default/sprite_sheet.png")
+    # Save to CWD — never overwrite a real sprite pack
+    sheet.save("debug_sprite_sheet.png")
+    print("Debug sprite sheet generated successfully at ./debug_sprite_sheet.png")
 
 if __name__ == "__main__":
     generate_debug_sprite_sheet()
