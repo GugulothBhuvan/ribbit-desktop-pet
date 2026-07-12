@@ -12,6 +12,7 @@ An intelligent, lightweight, 2D virtual companion that lives directly on your Wi
    - [Asynchronous Event Bus](#asynchronous-event-bus)
    - [Thread Ownership Boundaries](#thread-ownership-boundaries)
    - [Mascot Animation State Machine](#mascot-animation-state-machine)
+   - [Mascot Sprite Sheet & Frame Layout](#mascot-sprite-sheet--frame-layout)
 5. [Database Schema](#-database-schema)
 6. [API Integrations & Contracts](#-api-integrations--contracts)
 7. [Performance Budgets](#-performance-budgets)
@@ -156,6 +157,37 @@ stateDiagram-v2
     Think --> Speak : Stream tokens received from provider
     Speak --> Idle : Speech bubble dismiss / timeout
 ```
+
+### Mascot Sprite Sheet & Frame Layout
+
+The companion's animations are backed by a single sheet: `spritesheet.png` (dimensions: 1380px width × 1146px height), located at `assets/sprites/default/spritesheet.png`. Each frame is exactly **138px wide by 191px high**.
+
+To reference how coordinates map to animations, here is the visual frame map:
+
+![Frame Map](./frame_map.png)
+
+#### Frame Map Mapping:
+* **Row 1 (y = 0px): `idle` & `sleep`**
+  * `idle` (Frames 0–9): Mascot breathing, blinking.
+  * `sleep` (Frames 6–8): Reuses frames from x=828px with a slower frame speed (700ms).
+* **Row 2 (y = 191px): `walk`**
+  * `walk` (Frames 0–9): Walk cycle (facing right; programmatically mirrored in PyQt6 for walking left).
+* **Row 3 (y = 382px): `wave`**
+  * `wave` (Frames 0–9): Waving greeting or cheer animation.
+* **Row 4 (y = 573px): Physical & Drag Actions**
+  * `crouch` (Frames 0–1): Impact landing frame/squash.
+  * `sit` (Frame 1): Rest/sit frame (x=138px).
+  * `launch` (Frame 2): Launch frame for jumps (x=276px).
+  * `fall` (Frames 3–5): Falling downward frames.
+  * `landing` (Frames 6–9): Recovering from impact.
+  * `dragged` (Frames 4–6): Flailing legs frames when grabbed by cursor.
+* **Row 5 (y = 764px): `think` & `listen`**
+  * `think` (Frames 0–9): Hand-on-chin thinking loops.
+  * `listen` (Frames 0–3): Listening to Push-to-Talk voice capture.
+* **Row 6 (y = 955px): `talk`**
+  * `talk` (Frames 0–9): Speaking animation with varying mouth heights.
+
+All framing configurations, FPS values, loop rules, and frame-specific durations are defined dynamically in [metadata.json](./assets/sprites/default/metadata.json).
 
 ---
 
