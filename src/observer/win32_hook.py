@@ -1,53 +1,45 @@
 import os
 import sys
 import time
-import socket
 import ctypes
 from PyQt6.QtCore import QThread
 from src.event_bus import EventBus, EventType
+from src.utils.win32 import get_battery_status
 from src.utils.logger import get_logger
 
 logger = get_logger("Win32Observer")
 
-# Win32 structures for GetLastInputInfo and battery status
+# Win32 structure for GetLastInputInfo
 if sys.platform == "win32":
     class LASTINPUTINFO(ctypes.Structure):
         _fields_ = [
             ("cbSize", ctypes.c_uint),
             ("dwTime", ctypes.c_uint),
         ]
-        
-    class SYSTEM_POWER_STATUS(ctypes.Structure):
-        _fields_ = [
-            ('ACLineStatus', ctypes.c_byte),
-            ('BatteryFlag', ctypes.c_byte),
-            ('BatteryLifePercent', ctypes.c_byte),
-            ('Reserved1', ctypes.c_byte),
-            ('BatteryLifeTime', ctypes.c_ulong),
-            ('BatteryFullLifeTime', ctypes.c_ulong),
-        ]
 else:
     LASTINPUTINFO = None
-    SYSTEM_POWER_STATUS = None
+
+# Warn about low battery at most once per half hour
+BATTERY_WARN_INTERVAL_SEC = 1800.0
+
 
 class Win32Observer(QThread):
     """
     Background OS Hook Daemon Thread.
-    Observes active window shifts, user idle times, network availability, and battery status.
+    Observes active window shifts, user idle times, and battery status.
     Publishes events to the EventBus without directly invoking the LLM.
     """
     def __init__(self, event_bus: EventBus):
         super().__init__()
         self.event_bus = event_bus
         self.is_running = True
-        
+
         # State tracking variables
         self.prev_app = ""
         self.prev_title = ""
         self.is_user_idle = False
-        self.prev_network_status = True
-        self.prev_battery_charging = False
-        
+        self.last_battery_warn = 0.0
+
         # Idle threshold (5 minutes)
         self.idle_threshold_sec = 300.0
 
@@ -59,11 +51,10 @@ class Win32Observer(QThread):
                     self._observe_window()
                     self._observe_idle()
                     self._observe_battery()
-                self._observe_network()
             except Exception as e:
                 logger.error(f"Error in Win32Observer execution loop: {e}")
-            
-            # Poll every 1.0 seconds to consume 0% CPU
+
+            # Poll every 1.0 seconds to consume ~0% CPU
             time.sleep(1.0)
 
     def stop(self):
@@ -88,7 +79,7 @@ class Win32Observer(QThread):
         # Get Process ID and Process Name
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        
+
         app_name = "Unknown"
         PROCESS_QUERY_INFORMATION = 0x0400
         PROCESS_VM_READ = 0x0010
@@ -122,13 +113,13 @@ class Win32Observer(QThread):
         if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
             millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
             idle_sec = millis / 1000.0
-            
+
             # Transition to idle
             if idle_sec >= self.idle_threshold_sec and not self.is_user_idle:
                 self.is_user_idle = True
                 logger.info(f"User is idle ({int(idle_sec)}s). Emitting USER_IDLE event.")
                 self.event_bus.publish(EventType.USER_IDLE, {"idle_duration_sec": int(idle_sec)})
-                
+
             # Transition back to active
             elif idle_sec < 5.0 and self.is_user_idle:
                 self.is_user_idle = False
@@ -140,31 +131,19 @@ class Win32Observer(QThread):
                 self.event_bus.publish(EventType.SCREEN_STABLE, {"idle_duration_sec": int(idle_sec)})
 
     def _observe_battery(self):
-        """Monitors battery charge limits and charging status updates."""
-        status = SYSTEM_POWER_STATUS()
-        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
-            percent = status.BatteryLifePercent
-            charging = status.ACLineStatus == 1
-            
-            # Publish warning on low capacity when on battery power
-            if percent != 255 and percent <= 20 and not charging:
-                self.event_bus.publish(EventType.BATTERY_WARNING, {
-                    "percent": int(percent),
-                    "charging": charging
-                })
-            
-            self.prev_battery_charging = charging
+        """Publishes a low-battery warning while discharging, at most every 30 min.
 
-    def _observe_network(self):
-        """Checks internet connectivity status."""
-        try:
-            # Quick DNS resolve check
-            socket.setdefaulttimeout(1.0)
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
-            is_connected = True
-        except Exception:
-            is_connected = False
-            
-        if is_connected != self.prev_network_status:
-            self.prev_network_status = is_connected
-            logger.info(f"Network connectivity changed: Connected={is_connected}")
+        This is the single owner of BATTERY_WARNING (the scheduler no longer
+        duplicates the check)."""
+        percent, on_ac = get_battery_status()
+        if percent is None or on_ac is not False:
+            return
+
+        if percent <= 20:
+            now = time.time()
+            if now - self.last_battery_warn >= BATTERY_WARN_INTERVAL_SEC:
+                self.last_battery_warn = now
+                self.event_bus.publish(EventType.BATTERY_WARNING, {
+                    "percent": percent,
+                    "charging": False
+                })

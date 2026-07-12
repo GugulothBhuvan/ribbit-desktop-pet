@@ -4,7 +4,10 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer, QPoint, QBuffer, QIODevice
 from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent, QKeyEvent
 from src.config import Config
-from src.constants import PetState, FRAME_INTERVAL_MS
+from src.constants import (
+    PetState, FRAME_INTERVAL_MS, CLICK_DRAG_THRESHOLD_PX, SINGLE_CLICK_DELAY_MS,
+    MIN_WANDER_TIME, MAX_WANDER_TIME
+)
 from src.event_bus import EventBus, EventType
 from src.physics.movement import MovementController
 from src.animation.sprite_loader import SpriteLoader
@@ -61,6 +64,19 @@ class PetWindow(QWidget):
         self.is_muted = False
         self.drag_offset = QPoint()
 
+        # Click/drag/double-click discrimination (audit M-2): a press is only a
+        # click if the cursor moves < CLICK_DRAG_THRESHOLD_PX; the click action
+        # waits SINGLE_CLICK_DELAY_MS for a possible double-click.
+        self._pressed = False
+        self._suppress_click = False
+        self._press_global = QPoint()
+
+        # Hover bookkeeping: resume walking after the cursor leaves (audit m-24)
+        self._pre_hover_state = None
+
+        # Cooldown for ambient (non-user-initiated) speech (PRD "Never Spam")
+        self._last_ambient_bubble = 0.0
+
         # Initialize UI traits
         self._init_window_properties()
 
@@ -71,8 +87,10 @@ class PetWindow(QWidget):
         self.context_menu = ContextMenu(self, event_bus, db, application, scheduler)
         self.audio_recorder = audio_recorder
 
-        # Track double click state
-        self.last_click_time = 0.0
+        # Deferred single-click action (cancelled by drag or double-click)
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._on_single_click)
 
         # Event Bus subscriptions (all delivered on the GUI thread)
         for event_type in self.SUBSCRIBED_EVENTS:
@@ -107,11 +125,16 @@ class PetWindow(QWidget):
         self.setFixedSize(self.pet_width, self.pet_height)
         self.setMouseTracking(True)
 
+    def _floor_y(self) -> int:
+        """Top-of-taskbar Y for this window's screen (consistent with CollisionResolver)."""
+        rect = self.screen().availableGeometry()
+        return rect.top() + rect.height() - self.pet_height
+
     def _initial_spawn_position(self):
         # Spawn pet centered at bottom of display floor
         screen_rect = self.screen().availableGeometry()
         spawn_x = screen_rect.left() + (screen_rect.width() - self.pet_width) // 2
-        spawn_y = screen_rect.bottom() - self.pet_height
+        spawn_y = self._floor_y()
         self.physics.x = float(spawn_x)
         self.physics.y = float(spawn_y)
         self.move(spawn_x, spawn_y)
@@ -132,11 +155,22 @@ class PetWindow(QWidget):
         if muted:
             self.speech_bubble.hide()
 
-    def display_speech_bubble(self, text: str):
+    def display_speech_bubble(self, text: str, placeholder: bool = False):
         """Renders speech balloon next to pet."""
         if self.is_muted:
             return
-        self.speech_bubble.show_text(text, self.pos(), self.pet_width)
+        self.speech_bubble.show_text(text, self.pos(), self.pet_width, placeholder=placeholder)
+
+    def _display_ambient_bubble(self, text: str) -> bool:
+        """Shows a bubble for NON-user-initiated speech, subject to the spam
+        cooldown (PRD 'Never Spam'). Returns False when suppressed."""
+        now = time.time()
+        if now - self._last_ambient_bubble < Config.SPEECH_BUBBLE_COOLDOWN_SEC:
+            logger.debug(f"Ambient bubble suppressed by cooldown: '{text}'")
+            return False
+        self._last_ambient_bubble = now
+        self.display_speech_bubble(text)
+        return True
 
     def _update_animation_fps(self, state: str):
         fps = self.sprite_loader.get_animation_fps(state)
@@ -145,49 +179,73 @@ class PetWindow(QWidget):
         self.anim_timer.start(interval)
 
     # --- Mouse Event Handlers ---
+    # A press is not a drag until the cursor travels CLICK_DRAG_THRESHOLD_PX;
+    # a click action is deferred SINGLE_CLICK_DELAY_MS so a double-click can
+    # cancel it. Releasing a drag triggers physics only — never a chat query.
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.is_dragging = True
+            self._pressed = True
+            self.is_dragging = False
+            self._press_global = event.globalPosition().toPoint()
             self.drag_offset = event.position().toPoint()
-            self.physics.start_drag(self.pos() + self.drag_offset)
-            self.event_bus.publish(EventType.PET_DRAGGED)
 
         elif event.button() == Qt.MouseButton.RightButton:
             # Trigger custom context menu
             self.context_menu.exec(event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if self.is_dragging and event.buttons() == Qt.MouseButton.LeftButton:
-            global_pos = event.globalPosition().toPoint()
-            new_x = global_pos.x() - self.drag_offset.x()
-            new_y = global_pos.y() - self.drag_offset.y()
+        if not (self._pressed and event.buttons() & Qt.MouseButton.LeftButton):
+            return
 
-            # Sync directly to physics coordinate values
-            self.physics.x = float(new_x)
-            self.physics.y = float(new_y)
+        global_pos = event.globalPosition().toPoint()
 
-            # Perform temporary move mapping
-            self.move(new_x, new_y)
-            self.speech_bubble.position_bubble(self.pos(), self.pet_width)
+        if not self.is_dragging:
+            moved = (global_pos - self._press_global).manhattanLength()
+            if moved <= CLICK_DRAG_THRESHOLD_PX:
+                return
+            # Threshold crossed: this press is a drag, not a click
+            self.is_dragging = True
+            self._click_timer.stop()
+            self.physics.start_drag(self.pos() + self.drag_offset)
+            self.event_bus.publish(EventType.PET_DRAGGED)
+
+        new_x = global_pos.x() - self.drag_offset.x()
+        new_y = global_pos.y() - self.drag_offset.y()
+
+        # Sync directly to physics coordinate values
+        self.physics.x = float(new_x)
+        self.physics.y = float(new_y)
+
+        # Perform temporary move mapping
+        self.move(new_x, new_y)
+        self.speech_bubble.position_bubble(self.pos(), self.pet_width)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and self.is_dragging:
+        if event.button() != Qt.MouseButton.LeftButton or not self._pressed:
+            return
+        self._pressed = False
+
+        if self.is_dragging:
             self.is_dragging = False
-
             # Drop pet; physics resolves gravity drop or landing bounce
-            above_floor = self.pos().y() < (self.screen().availableGeometry().bottom() - self.pet_height)
+            above_floor = self.pos().y() < self._floor_y()
             self.event_bus.publish(EventType.PET_DROPPED, {"above_floor": above_floor})
+        elif self._suppress_click:
+            self._suppress_click = False
+        else:
+            # Defer the click action so a double-click can cancel it
+            self._click_timer.start(SINGLE_CLICK_DELAY_MS)
 
-            # Handle left click dialog trigger (if click duration was very short and no drag offset)
-            click_time = time.time()
-            if click_time - self.last_click_time < 0.3:
-                # Double Click Action
-                self.event_bus.publish(EventType.PET_DOUBLE_CLICKED)
-            else:
-                # Single Click: Trigger AI Dialog
-                self._trigger_interaction_loop()
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_timer.stop()
+            self._pressed = True          # Qt sends a release after this event
+            self._suppress_click = True   # ...which must not re-trigger a click
+            self.event_bus.publish(EventType.PET_DOUBLE_CLICKED)
 
-            self.last_click_time = click_time
+    def _on_single_click(self):
+        self.event_bus.publish(EventType.PET_CLICKED)
+        self._trigger_interaction_loop()
 
     def keyPressEvent(self, event: QKeyEvent):
         """PTT: Start recording audio on Spacebar press."""
@@ -214,19 +272,26 @@ class PetWindow(QWidget):
     def enterEvent(self, event: QEnterEvent):
         """Mouse hover: pause wandering, turn head toward cursor."""
         if self.renderer.current_state in [PetState.IDLE, PetState.WALK]:
+            self._pre_hover_state = self.renderer.current_state
             # Temporarily pause walk behavior
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
 
             # Determine direction (face mouse)
-            cursor_pos = self.mapFromGlobal(self.cursor().pos())
-            if cursor_pos.x() < self.width() / 2:
+            if event.position().x() < self.width() / 2:
                 self.renderer.set_direction(-1) # Face left
             else:
                 self.renderer.set_direction(1) # Face right
 
     def leaveEvent(self, event):
-        """Resume normal wander intervals on mouse exit."""
-        pass
+        """Resume walking if the hover interrupted a walk."""
+        if (self._pre_hover_state == PetState.WALK
+                and self.renderer.current_state == PetState.IDLE
+                and not self.is_dragging):
+            # Give the resumed walk a fresh wander budget, otherwise the
+            # expired timer flips it straight back to idle next tick
+            self.physics.wander_timer = random.uniform(MIN_WANDER_TIME, MAX_WANDER_TIME)
+            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WALK})
+        self._pre_hover_state = None
 
     # --- Game Loops Ticks ---
     def _on_physics_tick(self):
@@ -292,17 +357,18 @@ class PetWindow(QWidget):
             self._update_animation_fps(state)
 
         elif event_type == EventType.LLM_REQUEST_SENT:
-            self.display_speech_bubble("Thinking...")
+            # Placeholder: the first streamed chunk replaces it entirely
+            self.display_speech_bubble("Thinking...", placeholder=True)
 
         elif event_type == EventType.LLM_RESPONSE_CHUNK:
             chunk = data.get("text", "")
-            # Append chunk to bubble streaming display
-            self.speech_bubble.append_chunk(chunk, self.pos(), self.pet_width)
+            if not self.is_muted:
+                self.speech_bubble.append_chunk(chunk, self.pos(), self.pet_width)
 
         elif event_type == EventType.LLM_RESPONSE_RECEIVED:
-            # Set complete final response text
-            txt = data.get("text", "")
-            self.display_speech_bubble(txt)
+            # The text already streamed into the bubble — just let it finish
+            # typing and start its dismiss countdown (no re-typing glitch)
+            self.speech_bubble.finish_stream()
 
         elif event_type == EventType.LLM_ERROR_OCCURRED:
             self.display_speech_bubble("I'm having trouble thinking right now.")
@@ -320,14 +386,14 @@ class PetWindow(QWidget):
 
         elif event_type == EventType.BATTERY_WARNING:
             percent = data.get("percent", 20)
-            self.display_speech_bubble(f"My power is running low ({percent}%)! Plug me in soon?")
-            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
+            if self._display_ambient_bubble(f"My power is running low ({percent}%)! Plug me in soon?"):
+                self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
 
         elif event_type == EventType.WEATHER_FETCHED:
             city = data.get("city", "here")
             temp = data.get("temperature", 20.0)
             desc = data.get("description", "fine")
-            self.display_speech_bubble(f"It's {temp}°C and {desc} in {city}!")
+            self._display_ambient_bubble(f"It's {temp}°C and {desc} in {city}!")
 
         elif event_type == EventType.POMODORO_WORK_COMPLETE:
             self.display_speech_bubble("Work session complete! Time for a break!")
@@ -348,13 +414,13 @@ class PetWindow(QWidget):
             self._capture_and_analyze_screen(prompt, pet_state)
 
         elif event_type == EventType.TESTS_PASSED:
-            self.display_speech_bubble("All unit tests passed! Excellent work! 🎉")
-            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WAVE})
+            if self._display_ambient_bubble("All unit tests passed! Excellent work! 🎉"):
+                self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WAVE})
 
         elif event_type == EventType.TESTS_FAILED:
             failed_count = data.get("failed_count", 1)
-            self.display_speech_bubble(f"Oh no, {failed_count} tests failed! Let's fix them.")
-            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
+            if self._display_ambient_bubble(f"Oh no, {failed_count} tests failed! Let's fix them."):
+                self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
 
     def change_mascot(self, mascot_name: str):
         """Swaps active mascot sheet and updates the render frames immediately."""

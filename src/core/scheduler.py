@@ -95,7 +95,6 @@ class AmbientScheduler:
         
         # Track checking times
         self.last_reminder_check = 0.0
-        self.last_battery_check = 0.0
         self.last_weather_check = 0.0
         self.last_ide_check = 0.0
         self.prev_test_outcome = "unknown"
@@ -217,18 +216,8 @@ class AmbientScheduler:
                 except Exception as e:
                     logger.error(f"Error checking pending reminders: {e}")
             
-            # 2. Battery Warning Check (every 5 minutes / 300 seconds)
-            if now - self.last_battery_check >= 300.0:
-                self.last_battery_check = now
-                try:
-                    battery_percent = self.context_engine.get_battery_level()
-                    if battery_percent <= 20:
-                        self.event_bus.publish(EventType.BATTERY_WARNING, {
-                            "percent": battery_percent
-                        })
-                except Exception as e:
-                    logger.error(f"Error monitoring battery status: {e}")
-            
+            # 2. Battery warnings are owned by Win32Observer (rate-limited there).
+
             # 3. Weather Check (every 1 hour / 3600 seconds - run first check immediately)
             if self.last_weather_check == 0.0 or now - self.last_weather_check >= 3600.0:
                 self.last_weather_check = now

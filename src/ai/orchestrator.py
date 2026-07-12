@@ -1,8 +1,10 @@
 import os
+import re
 import asyncio
 from typing import Dict, Any
 from PyQt6.QtCore import QThread, pyqtSignal, QObject
 from src.config import Config
+from src.constants import MAX_CHARACTERS
 from src.event_bus import EventBus, EventType
 from src.ai.context_engine import ContextEngine
 from src.ai.providers.base import LLMProvider
@@ -21,7 +23,7 @@ Your personality: Playful, curious, developer-centric (likes technical jokes, co
 Current environment details:
 - User's active window: {active_window}
 - System time: {current_time}
-- Battery level: {battery_percent}%
+- Battery level: {battery_percent}
 - Pet physical state: {pet_active_state}
 - Git status: {git_uncommitted} uncommitted files, last commit: "{git_last_commit}"
 - Pytest run outcome: {recent_test_outcome} ({failed_tests_count} failed tests)
@@ -31,7 +33,54 @@ CRITICAL RULES:
 2. Avoid generic chatbot pleasantries. Answer directly in character.
 3. Be witty, encouraging, or tease the user playfully if they are working too long or compiling code.
 4. Keep the tone friendly. Never be offensive.
+5. Reply in plain text only: no markdown, no bullet lists, no code blocks.
 """
+
+
+def sanitize_chunk(text: str) -> str:
+    """Strips markdown decoration and newlines so bubble text stays clean."""
+    text = text.replace("\n", " ").replace("\r", " ")
+    text = re.sub(r"[*_`#]+", "", text)
+    return text
+
+
+def clamp_stream_text(accumulated_len: int, chunk: str, limit: int = MAX_CHARACTERS):
+    """Enforces the PRD 100-150 char cap AT THE STREAM LAYER (PRD §12.2).
+
+    Returns (text_to_emit, is_final). When the limit is hit mid-chunk the
+    text is cut and terminated with an ellipsis; is_final=True tells the
+    caller to stop consuming the stream."""
+    remaining = limit - accumulated_len
+    if remaining <= 0:
+        return "", True
+    if len(chunk) > remaining:
+        return chunk[:remaining].rstrip() + "…", True
+    return chunk, False
+
+
+# Word-boundary patterns for long-term memory extraction. The previous
+# substring splits captured garbage from sentences merely containing
+# "prefer" (audit m-14).
+# Second name word must be capitalized ("Bhuvan Raj" yes, "Bhuvan by the way" no)
+_NAME_PATTERN = re.compile(
+    r"\bmy name is\s+([A-Za-z][\w'-]*(?:\s+[A-Z][\w'-]*)?)")
+_PREF_PATTERN = re.compile(
+    r"\bi (?:prefer|code in|use)\s+([^.,!?\n]{2,40})", re.IGNORECASE)
+
+
+def extract_memory_facts(user_msg: str) -> Dict[str, str]:
+    """Extracts durable user facts (name, coding preference) from a message."""
+    facts: Dict[str, str] = {}
+    # Case-sensitive second word: match against the raw message but find the
+    # phrase case-insensitively by normalizing only the trigger
+    name_match = _NAME_PATTERN.search(
+        re.sub(r"\bmy name is\b", "my name is", user_msg, flags=re.IGNORECASE))
+    if name_match:
+        facts["user_name"] = name_match.group(1).strip()
+    pref_match = _PREF_PATTERN.search(user_msg)
+    if pref_match:
+        facts["coding_pref"] = pref_match.group(1).strip()
+    return facts
 
 class LLMStreamWorker(QThread):
     """Background worker thread to run asynchronous HTTP streaming to avoid GUI freezes.
@@ -61,10 +110,17 @@ class LLMStreamWorker(QThread):
 
     async def _execute_stream(self):
         full_response = ""
-        async for chunk in self.provider.stream(self.prompt, self.context):
-            full_response += chunk
-            self.chunk_received.emit(chunk)
-        self.stream_finished.emit(full_response)
+        async for raw_chunk in self.provider.stream(self.prompt, self.context):
+            chunk = sanitize_chunk(raw_chunk)
+            if not chunk:
+                continue
+            chunk, is_final = clamp_stream_text(len(full_response), chunk)
+            if chunk:
+                full_response += chunk
+                self.chunk_received.emit(chunk)
+            if is_final:
+                break
+        self.stream_finished.emit(full_response.strip())
 
 class AIOrchestrator(QObject):
     """
@@ -98,6 +154,10 @@ class AIOrchestrator(QObject):
         self.memory_repo = MemoryRepository(db)
 
         self.worker = None
+        # Single in-flight query guard (audit M-6 / plan 3.5): overlapping
+        # queries previously overwrote the running QThread and interleaved
+        # chunks into one bubble.
+        self._query_in_flight = False
 
         for event_type in self.SUBSCRIBED_EVENTS:
             self.event_bus.subscribe(event_type, self.on_event, executor="gui")
@@ -155,6 +215,9 @@ class AIOrchestrator(QObject):
 
     def handle_user_query(self, user_prompt: str, pet_state: Dict[str, Any]):
         """Initiates the AI response pipeline asynchronously."""
+        if self._query_in_flight:
+            logger.info("Query already in flight; ignoring new query.")
+            return
         logger.info(f"Handling user query: '{user_prompt}'")
 
         # Check if the query asks the pet to look at screen / code / design.
@@ -170,6 +233,8 @@ class AIOrchestrator(QObject):
             })
             return
 
+        self._query_in_flight = True
+
         # Dispatch notification to transition to thinking state
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
 
@@ -178,7 +243,11 @@ class AIOrchestrator(QObject):
 
     def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any], image_bytes: bytes):
         """Initiates the AI response pipeline with screenshot bytes included."""
+        if self._query_in_flight:
+            logger.info("Query already in flight; dropping vision query.")
+            return
         logger.info(f"Handling user query with screen capture: '{user_prompt}'")
+        self._query_in_flight = True
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
         self.application.run_async(self._prepare_and_run_worker(user_prompt, pet_state, image_bytes))
 
@@ -197,11 +266,14 @@ class AIOrchestrator(QObject):
             facts = await self.memory_repo.get_all_facts()
             context["long_term_memories"] = facts
 
-            # 4. Generate system prompt
+            # 4. Generate system prompt (omit unavailable telemetry — a
+            #    desktop PC reports battery None, never a number)
+            battery = context.get("battery_percent")
+            battery_display = f"{battery}%" if battery is not None else "n/a (desktop)"
             system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
                 active_window=context["active_window"],
                 current_time=context["current_time"],
-                battery_percent=context["battery_percent"],
+                battery_percent=battery_display,
                 pet_active_state=context["pet_active_state"],
                 git_uncommitted=context["git_uncommitted_count"],
                 git_last_commit=context["git_last_commit"],
@@ -229,6 +301,7 @@ class AIOrchestrator(QObject):
 
         except Exception as e:
             logger.error(f"Failed to prepare LLM query: {e}")
+            self._query_in_flight = False
             self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "Failed to prepare query."})
 
     def _on_chunk_received(self, chunk: str):
@@ -240,10 +313,12 @@ class AIOrchestrator(QObject):
 
     def _on_error_received(self, error_msg: str):
         logger.error(f"LLM request error: {error_msg}")
+        self._query_in_flight = False
         self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "LLM request failed."})
 
     def _on_generation_finished(self, prompt: str, complete_response: str):
         logger.info(f"LLM query finished. Complete response: '{complete_response}'")
+        self._query_in_flight = False
 
         # Save messages to database history in background
         self.application.run_async(self._save_interaction(prompt, complete_response))
@@ -256,17 +331,9 @@ class AIOrchestrator(QObject):
             await self.conv_repo.add_message("user", user_msg)
             await self.conv_repo.add_message("assistant", assistant_msg)
 
-            # Simple heuristic to extract memories: if user mentions name or programming preference
-            # e.g., "my name is X", "I use React"
-            lower_msg = user_msg.lower()
-            if "my name is " in lower_msg:
-                name = user_msg.split("my name is ")[1].strip(" .?!")
-                await self.memory_repo.save_fact("user_name", name)
-                logger.info(f"Extracted and saved long term memory: user_name = '{name}'")
-            if "i prefer " in lower_msg or "i code in " in lower_msg:
-                pref = user_msg.split("prefer ")[-1].strip(" .?!")
-                await self.memory_repo.save_fact("coding_pref", pref)
-                logger.info(f"Extracted and saved long term memory: coding_pref = '{pref}'")
+            for key, value in extract_memory_facts(user_msg).items():
+                await self.memory_repo.save_fact(key, value)
+                logger.info(f"Extracted and saved long term memory: {key} = '{value}'")
 
         except Exception as e:
             logger.error(f"Error saving conversation logs: {e}")

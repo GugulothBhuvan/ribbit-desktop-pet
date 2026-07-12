@@ -67,22 +67,37 @@ class StateMachine:
         })
         return True
 
+    # States governed by physics; behavior/AI states may not preempt them
+    # (prevents fall -> think -> fall flapping when an LLM request lands
+    # while the pet is airborne — the bubble still shows regardless).
+    PHYSICAL_STATES = [PetState.DRAGGED, PetState.FALL, PetState.LAUNCH, PetState.LANDING]
+
     def _validate_transition(self, current: str, proposed: str) -> bool:
         """
         Enforces state transition rules.
         - Dragging or gravity drops bypass checks.
+        - Physical states can only be exited by physics-driven transitions.
         - Transition protection: Sleep cannot directly transition to Walk.
         """
         # 1. Any state can be interrupted by being dragged, falling, or dropped
         if proposed in [PetState.DRAGGED, PetState.FALL, PetState.LANDING]:
             return True
-            
-        # 2. Enforce sleep wake protection
+
+        # 2. While airborne/dragged, only physics decides the next state
+        #    (LANDING -> IDLE via ANIMATION_FINISHED is allowed)
+        if current in self.PHYSICAL_STATES:
+            if current == PetState.LANDING and proposed == PetState.IDLE:
+                return True
+            if current == PetState.LAUNCH and proposed == PetState.FALL:
+                return True
+            return False
+
+        # 3. Enforce sleep wake protection
         if current == PetState.SLEEP:
             # Cannot wake up straight into walking, must sit/wake first
             if proposed in [PetState.WALK, PetState.WAVE, PetState.TALK, PetState.LISTEN]:
                 return False
-                
+
         return True
 
     def on_event(self, event_type: str, data: dict):

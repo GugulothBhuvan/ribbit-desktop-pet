@@ -3,24 +3,14 @@ import sys
 import time
 import subprocess
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-# Platform-specific imports for context gathering using standard libraries
 if sys.platform == "win32":
     import ctypes
-    
-    class SYSTEM_POWER_STATUS(ctypes.Structure):
-        _fields_ = [
-            ('ACLineStatus', ctypes.c_byte),
-            ('BatteryFlag', ctypes.c_byte),
-            ('BatteryLifePercent', ctypes.c_byte),
-            ('Reserved1', ctypes.c_byte),
-            ('BatteryLifeTime', ctypes.c_ulong),
-            ('BatteryFullLifeTime', ctypes.c_ulong),
-        ]
 else:
     ctypes = None
 
+from src.utils.win32 import get_battery_status
 from src.utils.logger import get_logger
 
 logger = get_logger("ContextEngine")
@@ -47,19 +37,10 @@ class ContextEngine:
                 logger.debug(f"Failed to get active window title on Windows: {e}")
         return "Unknown Application"
 
-    def get_battery_level(self) -> int:
-        """Retrieves the system battery charge percentage (Windows specific, safe fallback)."""
-        if sys.platform == "win32" and ctypes:
-            try:
-                status = SYSTEM_POWER_STATUS()
-                if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
-                    percent = status.BatteryLifePercent
-                    # 255 indicates status unknown
-                    if percent != 255:
-                        return int(percent)
-            except Exception as e:
-                logger.debug(f"Failed to get system battery level on Windows: {e}")
-        return 100  # Default fallback if on desktop or other OS without support
+    def get_battery_level(self) -> Optional[int]:
+        """Battery charge percentage, or None when unknown / no battery (desktops)."""
+        percent, _ = get_battery_status()
+        return percent
 
     def get_git_context(self) -> Dict[str, Any]:
         """Gathers local Git status details using subprocess checks."""

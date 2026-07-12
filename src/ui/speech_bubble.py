@@ -2,8 +2,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygon
 from src.constants import (
-    MAX_BUBBLE_WIDTH, DEFAULT_TYPING_SPEED_MS,
-    FADE_DURATION_MS, READING_TIME_PER_WORD_MS
+    MAX_BUBBLE_WIDTH, DEFAULT_TYPING_SPEED_MS, READING_TIME_PER_WORD_MS
 )
 from src.utils.logger import get_logger
 
@@ -34,14 +33,26 @@ class SpeechBubble(QWidget):
         self.full_text = ""
         self.current_visible_text = ""
         self.char_index = 0
-        
+
+        # Streaming lifecycle: a placeholder ("Thinking...") is replaced by the
+        # first streamed chunk instead of being concatenated with it (audit M-1);
+        # while a stream is active the bubble never starts its dismiss fade.
+        self.is_placeholder = False
+        self.stream_active = False
+
         # Animation & Fade settings
         self.opacity = 1.0
         self.is_fading = False
-        
+
         # Sizing boundaries
         self.padding = 12
         self.bubble_rect = QRect()
+
+        # Font metrics are reused across paints/chunks instead of being
+        # constructed per call
+        self.font = QFont("Segoe UI", 9)
+        from PyQt6.QtGui import QFontMetrics
+        self.font_metrics = QFontMetrics(self.font)
         
         # Timers
         self.typewriter_timer = QTimer(self)
@@ -54,18 +65,23 @@ class SpeechBubble(QWidget):
         self.dismiss_timer.setSingleShot(True)
         self.dismiss_timer.timeout.connect(self.start_fade)
 
-    def show_text(self, text: str, pet_pos: QPoint, pet_size: int):
-        """Prepares and displays the bubble next to the pet."""
+    def show_text(self, text: str, pet_pos: QPoint, pet_size: int, placeholder: bool = False):
+        """Prepares and displays the bubble next to the pet.
+
+        placeholder=True marks transient status text ("Thinking...") that the
+        first streamed chunk should replace entirely."""
         if not text:
             self.hide()
             return
-            
+
         self.full_text = text
         self.current_visible_text = ""
         self.char_index = 0
         self.opacity = 1.0
         self.is_fading = False
-        
+        self.is_placeholder = placeholder
+        self.stream_active = False
+
         self.fade_timer.stop()
         self.dismiss_timer.stop()
         
@@ -81,13 +97,33 @@ class SpeechBubble(QWidget):
 
     def append_chunk(self, chunk: str, pet_pos: QPoint, pet_size: int):
         """Streams a text chunk (real-time stream update)."""
+        if self.is_placeholder:
+            # First real chunk replaces the "Thinking..." placeholder
+            self.full_text = ""
+            self.current_visible_text = ""
+            self.char_index = 0
+            self.is_placeholder = False
+
+        self.stream_active = True
+        self.is_fading = False
+        self.opacity = 1.0
+        self.fade_timer.stop()
+        self.dismiss_timer.stop()  # never fade out mid-stream
+
         self.full_text += chunk
         self._calculate_dimensions()
         self.position_bubble(pet_pos, pet_size)
-        
-        if not self.typewriter_timer.isActive() and not self.is_fading:
+
+        if not self.typewriter_timer.isActive():
             self.show()
             self.typewriter_timer.start(DEFAULT_TYPING_SPEED_MS)
+
+    def finish_stream(self):
+        """Marks the stream complete; the dismiss countdown starts once the
+        typewriter catches up (or immediately if it already has)."""
+        self.stream_active = False
+        if not self.typewriter_timer.isActive() and self.isVisible():
+            self._start_dismiss_countdown()
 
     def position_bubble(self, pet_pos: QPoint, pet_size: int):
         """Aligns the speech bubble relative to the pet coordinates."""
@@ -112,11 +148,8 @@ class SpeechBubble(QWidget):
 
     def _calculate_dimensions(self):
         """Measures font layouts to auto-size the speech bubble boundaries."""
-        font = QFont("Segoe UI", 9)
-        # Use simple estimates or QFontMetrics to wrap text
-        from PyQt6.QtGui import QFontMetrics
-        fm = QFontMetrics(font)
-        
+        fm = self.font_metrics
+
         # Wrap bounds
         max_text_width = MAX_BUBBLE_WIDTH - (self.padding * 2)
         text_rect = fm.boundingRect(
@@ -140,10 +173,15 @@ class SpeechBubble(QWidget):
             self.update()
         else:
             self.typewriter_timer.stop()
-            # Calculate reading delay based on word count
-            word_count = len(self.full_text.split())
-            reading_duration = max(3000, word_count * READING_TIME_PER_WORD_MS)
-            self.dismiss_timer.start(reading_duration)
+            # While streaming, more text may still arrive — don't dismiss yet
+            if not self.stream_active:
+                self._start_dismiss_countdown()
+
+    def _start_dismiss_countdown(self):
+        """Reading delay proportional to word count, then fade."""
+        word_count = len(self.full_text.split())
+        reading_duration = max(3000, word_count * READING_TIME_PER_WORD_MS)
+        self.dismiss_timer.start(reading_duration)
 
     def start_fade(self):
         """Triggers the opacity fade-out sequence."""
@@ -199,7 +237,7 @@ class SpeechBubble(QWidget):
         
         # 3. Paint typewriter text
         painter.setPen(QPen(QColor(25, 25, 25, 255)))
-        painter.setFont(QFont("Segoe UI", 9))
+        painter.setFont(self.font)
         
         text_draw_rect = QRect(
             self.bubble_rect.left() + self.padding,

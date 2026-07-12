@@ -41,10 +41,13 @@ class CollisionResolver:
         center_pt = QPoint(int(x + w / 2), int(y + h / 2))
         screen_geom = cls.get_active_screen_geometry(center_pt)
         
+        # QRect.right()/bottom() are left+width-1 / top+height-1 (Qt legacy),
+        # so compute edges from width/height to avoid a 1px sink into the
+        # taskbar / right wall.
         left_wall = screen_geom.left()
-        right_wall = screen_geom.right() - w
+        right_wall = screen_geom.left() + screen_geom.width() - w
         top_wall = screen_geom.top()
-        floor_y = screen_geom.bottom() - h  # Top of taskbar
+        floor_y = screen_geom.top() + screen_geom.height() - h  # Top of taskbar
         
         collided_floor = False
         collided_wall = False

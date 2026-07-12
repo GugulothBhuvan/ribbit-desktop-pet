@@ -109,11 +109,10 @@ class KrutrimProvider(LLMProvider):
     async def health(self) -> bool:
         if not self.api_key or "your_" in self.api_key:
             return False
-        # Small check or ping
+        # Ping the models list on the same host the chat endpoint uses
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                # Ping models list or similar API health check
-                url = "https://api.krutrim.com/v1/models"
+                url = "https://cloud.olakrutrim.com/v1/models"
                 res = await client.get(url, headers=self._get_headers())
                 return res.status_code == 200
         except Exception:

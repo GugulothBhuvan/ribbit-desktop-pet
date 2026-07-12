@@ -1,5 +1,3 @@
-import os
-
 # Asset Dimensions
 DEFAULT_PET_WIDTH = 128
 DEFAULT_PET_HEIGHT = 128
@@ -36,6 +34,10 @@ class PetState:
     DRAGGED = "dragged"
     SLEEP = "sleep"
     SIT = "sit"
+
+# Mouse Interaction
+CLICK_DRAG_THRESHOLD_PX = 6     # Movement beyond this is a drag, not a click
+SINGLE_CLICK_DELAY_MS = 280     # Wait for a possible double-click before acting
 
 # Dialogue Configuration
 MAX_BUBBLE_WIDTH = 300

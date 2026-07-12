@@ -13,6 +13,13 @@ logger = get_logger("Main")
 def main():
     logger.info("Starting Desktop Pet AI Application...")
 
+    # 0. Refuse to run twice: two instances share one DB, one log, and both
+    #    draw a pet (observed in the wild — audit m-18).
+    from src.utils.win32 import acquire_single_instance_lock
+    if not acquire_single_instance_lock():
+        logger.error("Another Desktop Pet instance is already running. Exiting.")
+        sys.exit(1)
+
     # 1. QApplication FIRST — Qt objects (pixmaps, timers, the event bus)
     #    may only be created after this exists, and only on this thread.
     qapp = QApplication(sys.argv)
