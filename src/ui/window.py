@@ -263,7 +263,15 @@ class PetWindow(QWidget):
     def _toggle_ptt(self):
         """Global-hotkey push-to-talk toggle (plan 5.6). Replaces the old
         focused-window Space handler, which both required focus the window is
-        designed to never take (PRD 8.6) and swallowed the user's spacebar."""
+        designed to never take (PRD 8.6) and swallowed the user's spacebar.
+
+        Debounced: defense-in-depth against hotkey auto-repeat/mashing —
+        toggling start->stop faster than this produces empty clips anyway."""
+        now = time.time()
+        if now - getattr(self, "_last_ptt_toggle", 0.0) < 0.4:
+            return
+        self._last_ptt_toggle = now
+
         if not self.audio_recorder.is_recording:
             logger.info("PTT: starting audio recording.")
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.LISTEN})

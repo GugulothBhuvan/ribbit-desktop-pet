@@ -20,6 +20,12 @@ dev = [
     "psutil>=5.9.0",
 ]
 
+[tool.pyright]
+# Imports are `src.xxx` resolved from the repo root; without this the analyzer
+# infers src/ as the import root and flags every intra-package import.
+extraPaths = ["."]
+include = ["src", "tests", "tools"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "strict"

@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QImage
 from src.config import Config
-from src.constants import MAX_CHARACTERS
+from src.constants import MAX_CHARACTERS, PetState
 from src.event_bus import EventBus, EventType
 from src.ai.context_engine import ContextEngine
 from src.ai.prompts import build_system_prompt
@@ -135,11 +135,16 @@ class AIOrchestrator(QObject):
             from src.ai.providers.deepgram import DeepgramProvider
             dp = DeepgramProvider()
             transcript = await dp.transcribe(wav_path)
-            if transcript:
+            if transcript and transcript.strip():
                 logger.info(f"Orchestrator: Voice transcribed successfully: '{transcript}'")
                 self.handle_user_query(transcript, {})
             else:
-                self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "Could not transcribe audio."})
+                # Empty transcript = silence / too-short clip. That's not an
+                # error — nudge and settle back to idle rather than showing
+                # the "I'm having trouble thinking" failure line.
+                logger.info("Orchestrator: empty transcript (silence); returning to idle.")
+                self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": "Hmm, I didn't catch that!"})
+                self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
         except Exception as e:
             logger.error(f"Orchestrator voice transcription failed: {e}")
             self.event_bus.publish(EventType.LLM_ERROR_OCCURRED, {"error": "Transcription failed."})

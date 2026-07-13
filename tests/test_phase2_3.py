@@ -163,3 +163,28 @@ def test_walk_speed_is_frame_rate_independent(qapp, event_bus):
     d30 = travel(1 / 30, 30)
     assert abs(d60 - WALK_SPEED) < 1.0
     assert abs(d60 - d30) < 1.0
+
+
+# --- Voice/PTT fixes (post-live-run) -----------------------------------------
+
+def test_sleeping_pet_wakes_into_listen(qapp, event_bus):
+    """A sleeping pet must be able to enter LISTEN when PTT starts recording;
+    rejecting it left the pet asleep while the mic was live (observed live)."""
+    from src.animation.sprite_loader import SpriteLoader
+    from src.animation.state_machine import StateMachine
+
+    sm = StateMachine(event_bus, SpriteLoader())
+    sm.set_state(PetState.SLEEP)
+    assert sm.set_state(PetState.LISTEN) is True
+    # But it still can't leap straight into wandering from sleep
+    sm.set_state(PetState.SLEEP)
+    assert sm.set_state(PetState.WALK) is False
+
+def test_audio_recorder_paths_are_unique():
+    from src.core.audio_recorder import AudioRecorder
+    rec = AudioRecorder()
+    try:
+        paths = {rec._new_output_path() for _ in range(100)}
+        assert len(paths) == 100  # no collisions even back-to-back
+    finally:
+        rec.cleanup()

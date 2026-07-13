@@ -122,8 +122,12 @@ def test_audio_recorder():
         assert recorder.channels == 1
         assert recorder.rate == 16000
         assert recorder.chunk_size == 1024
-        # PTT recordings must live in the OS temp dir, never the project folder
-        assert recorder.output_filename.startswith(tempfile.gettempdir())
+        # Each recording gets a fresh unique temp path (never the project
+        # folder, never a shared name that a stale delete could clobber)
+        p1 = recorder._new_output_path()
+        p2 = recorder._new_output_path()
+        assert p1.startswith(tempfile.gettempdir())
+        assert p1 != p2
     finally:
         recorder.cleanup()
 

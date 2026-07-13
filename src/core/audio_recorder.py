@@ -1,5 +1,6 @@
 import os
 import wave
+import uuid
 import tempfile
 import threading
 import pyaudio
@@ -21,14 +22,21 @@ class AudioRecorder:
         self.frames = []
         self.is_recording = False
         self.record_thread = None
-        self.output_filename = os.path.join(
-            tempfile.gettempdir(), f"desk_pet_ptt_{os.getpid()}.wav"
-        )
-        
+        # Each recording gets a fresh unique path (set in start_recording) so
+        # the orchestrator deleting a finished clip can never remove a
+        # different in-flight recording.
+        self.output_filename = ""
+
         # Audio parameters
         self.channels = 1
         self.rate = 16000  # 16kHz standard for ASR
         self.chunk_size = 1024
+
+    def _new_output_path(self) -> str:
+        return os.path.join(
+            tempfile.gettempdir(),
+            f"desk_pet_ptt_{os.getpid()}_{uuid.uuid4().hex[:12]}.wav"
+        )
 
     def start_recording(self):
         """Starts a background thread to record microphone audio."""
@@ -38,6 +46,7 @@ class AudioRecorder:
 
         logger.info("Starting audio recording...")
         self.frames = []
+        self.output_filename = self._new_output_path()
         self.is_recording = True
         
         try:

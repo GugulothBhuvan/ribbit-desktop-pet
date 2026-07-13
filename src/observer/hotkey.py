@@ -15,6 +15,9 @@ logger = get_logger("GlobalHotkey")
 
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
+# Without MOD_NOREPEAT, holding the combo fires WM_HOTKEY at the keyboard's
+# auto-repeat rate (~30/s), machine-gunning the PTT toggle (observed live).
+MOD_NOREPEAT = 0x4000
 VK_SPACE = 0x20
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
@@ -42,7 +45,7 @@ class GlobalHotkeyListener(QThread):
 
         self._native_thread_id = kernel32.GetCurrentThreadId()
 
-        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT, VK_SPACE):
+        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_SPACE):
             logger.error(f"Could not register global PTT hotkey {HOTKEY_LABEL} "
                          "(already in use by another app?). Voice input disabled.")
             return

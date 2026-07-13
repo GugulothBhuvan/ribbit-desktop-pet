@@ -92,10 +92,12 @@ class StateMachine:
                 return True
             return False
 
-        # 3. Enforce sleep wake protection
+        # 3. Enforce sleep wake protection: a sleeping pet shouldn't leap
+        #    straight into wandering, but user-initiated interaction (a voice
+        #    query / an AI reply) must wake it — rejecting LISTEN left the
+        #    pet asleep while it was actually recording (observed live).
         if current == PetState.SLEEP:
-            # Cannot wake up straight into walking, must sit/wake first
-            if proposed in [PetState.WALK, PetState.WAVE, PetState.TALK, PetState.LISTEN]:
+            if proposed in [PetState.WALK, PetState.WAVE]:
                 return False
 
         return True
