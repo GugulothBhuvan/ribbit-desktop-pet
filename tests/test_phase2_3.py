@@ -188,3 +188,37 @@ def test_audio_recorder_paths_are_unique():
         assert len(paths) == 100  # no collisions even back-to-back
     finally:
         rec.cleanup()
+
+
+# --- Hotkey parsing + ambient interruption (post-live-run) -------------------
+
+def test_parse_hotkey_variants():
+    from src.observer.hotkey import parse_hotkey, MOD_CONTROL, MOD_ALT
+    mods, vk, label = parse_hotkey("ctrl+space")
+    assert mods == MOD_CONTROL and vk == 0x20
+    mods, vk, label = parse_hotkey("ctrl+alt+j")
+    assert mods == (MOD_CONTROL | MOD_ALT) and vk == ord("J")
+    assert parse_hotkey("shift") is None  # no non-modifier key
+
+def test_user_query_resets_ambient_cooldown(qapp, event_bus, tmp_db):
+    import time as _t
+    import asyncio
+    from src.ai.context_engine import ContextEngine
+    from src.core.scheduler import AmbientScheduler
+    from src.event_bus import EventType
+
+    asyncio.run(tmp_db.initialize())
+    sched = AmbientScheduler(event_bus, tmp_db, ContextEngine())
+    sched.last_ai_invocation = 0.0  # cooldown long elapsed
+
+    # A user query fires -> scheduler must mark AI as just-invoked
+    sched.on_event(EventType.LLM_REQUEST_SENT, {})
+    assert _t.time() - sched.last_ai_invocation < 1.0
+
+    # An immediately-following stable screen must NOT trigger a vision query
+    triggered = []
+    event_bus.subscribe(EventType.VISION_CAPTURE_REQUESTED,
+                        lambda t, d: triggered.append(d), executor="gui")
+    sched.pending_low_priority_events.append({"type": "x", "data": {"app_name": "a"}, "timestamp": 0})
+    sched.on_event(EventType.SCREEN_STABLE, {})
+    assert triggered == []  # throttled by the reset cooldown

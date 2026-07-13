@@ -34,6 +34,11 @@ class Config:
     PET_VOLUME = float(os.getenv("PET_VOLUME", "0.8"))
     SPEECH_TYPING_SPEED_MS = int(os.getenv("SPEECH_TYPING_SPEED_MS", "40"))
     SPEECH_BUBBLE_COOLDOWN_SEC = int(os.getenv("SPEECH_BUBBLE_COOLDOWN_SEC", "10"))
+
+    # Global push-to-talk hotkey (e.g. "ctrl+space", "ctrl+alt+j").
+    # NOTE: "ctrl+space" is also IDE autocomplete — a global binding shadows it
+    # everywhere. Change this if that bothers you.
+    PTT_HOTKEY = os.getenv("PTT_HOTKEY", "ctrl+space")
     
     # Behavior Settings
     WANDER_INTERVAL_MIN = int(os.getenv("WANDER_INTERVAL_MIN", "2"))

@@ -77,6 +77,7 @@ class AmbientScheduler:
 
     # Events consumed by the AI-invocation decision engine
     SUBSCRIBED_EVENTS_ASYNC = [
+        EventType.LLM_REQUEST_SENT,
         EventType.BATTERY_WARNING,
         EventType.TESTS_PASSED,
         EventType.TESTS_FAILED,
@@ -114,6 +115,15 @@ class AmbientScheduler:
         """Processes and filters system events to throttle and coordinate AI invocation."""
         now = time.time()
         
+        # Any AI request (user voice/chat OR our own ambient trigger) resets the
+        # ambient cooldown, so an auto vision query can't barge in and talk over
+        # a reply the user just asked for (observed live: a voice answer was
+        # clobbered by an ambient screen comment ~1s later).
+        if event_type == EventType.LLM_REQUEST_SENT:
+            self.last_ai_invocation = now
+            self.pending_low_priority_events.clear()
+            return
+
         # High Priority Events: Enforce instant processing, bypass standard idle/stability debounces
         if event_type == EventType.BATTERY_WARNING:
             if now - self.last_ai_invocation >= 60.0:
