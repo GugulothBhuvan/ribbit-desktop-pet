@@ -43,6 +43,23 @@ class WakeWordListener(QThread):
         self._pa = None
         self._stream = None
         self._model = None
+        self._score_key = Config.WAKE_WORD_MODEL
+
+    @staticmethod
+    def _resolve_model(spec: str):
+        """WAKE_WORD_MODEL is either an openWakeWord built-in name (e.g.
+        'hey_jarvis') or a path to a custom-trained model file. Returns
+        (model_arg, score_key, inference_framework).
+
+        For a custom file the detection-score dict is keyed by the file's
+        basename (no extension), NOT the path — getting this wrong means the
+        score lookup silently never matches."""
+        if spec.endswith((".onnx", ".tflite")) or os.path.exists(spec):
+            path = os.path.abspath(spec)
+            score_key = os.path.splitext(os.path.basename(path))[0]
+            framework = "onnx" if path.endswith(".onnx") else "tflite"
+            return path, score_key, framework
+        return spec, spec, None  # built-in name
 
     @property
     def active(self) -> bool:
@@ -61,16 +78,24 @@ class WakeWordListener(QThread):
         try:
             import numpy as np
             import pyaudio
-            import openwakeword
             from openwakeword.model import Model
+            from openwakeword.utils import download_models
         except ImportError:
             logger.warning("Wake word enabled but dependencies missing. "
                            "Run: pip install openwakeword numpy. Hotkey still works.")
             return
 
+        model_arg, self._score_key, framework = self._resolve_model(Config.WAKE_WORD_MODEL)
+        if framework and not os.path.exists(model_arg):
+            logger.error(f"Custom wake-word model not found: {model_arg}. Hotkey still works.")
+            return
+
         try:
-            openwakeword.utils.download_models()  # no-op if already cached
-            self._model = Model(wakeword_models=[Config.WAKE_WORD_MODEL])
+            download_models()  # base feature models; no-op if already cached
+            if framework:
+                self._model = Model(wakeword_models=[model_arg], inference_framework=framework)
+            else:
+                self._model = Model(wakeword_models=[model_arg])
         except Exception as e:
             logger.error(f"Could not load wake-word model '{Config.WAKE_WORD_MODEL}': {e}. Hotkey still works.")
             return
@@ -85,7 +110,7 @@ class WakeWordListener(QThread):
             self._model = None
             return
 
-        logger.info(f"Wake word active: say the '{Config.WAKE_WORD_MODEL}' phrase to talk.")
+        logger.info(f"Wake word active: say the '{self._score_key}' phrase to talk.")
         try:
             while self._running:
                 try:
@@ -101,7 +126,7 @@ class WakeWordListener(QThread):
 
                 audio = np.frombuffer(data, dtype=np.int16)
                 scores = self._model.predict(audio)
-                if scores.get(Config.WAKE_WORD_MODEL, 0.0) >= Config.WAKE_WORD_THRESHOLD:
+                if scores.get(self._score_key, 0.0) >= Config.WAKE_WORD_THRESHOLD:
                     logger.info("Wake word detected.")
                     self._capture_utterance()
         finally:

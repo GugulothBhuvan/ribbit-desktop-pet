@@ -41,6 +41,24 @@ def test_missing_dependency_degrades_gracefully(qapp, event_bus, monkeypatch):
         Config.WAKE_WORD_ENABLED = original
 
 
+def test_resolve_builtin_vs_custom_model():
+    """Built-in name passes through; a custom file resolves to (abspath,
+    basename-without-ext score key, framework). Getting the score key wrong
+    means detections silently never match."""
+    import os
+    arg, key, fw = WakeWordListener._resolve_model("hey_jarvis")
+    assert (arg, key, fw) == ("hey_jarvis", "hey_jarvis", None)
+
+    arg, key, fw = WakeWordListener._resolve_model("assets/wake/hey_pet.onnx")
+    assert key == "hey_pet"
+    assert fw == "onnx"
+    assert os.path.isabs(arg)
+
+    arg, key, fw = WakeWordListener._resolve_model("models/my_phrase.tflite")
+    assert key == "my_phrase"
+    assert fw == "tflite"
+
+
 def test_manual_trigger_sets_flag(qapp, event_bus):
     listener = WakeWordListener(event_bus)
     assert not listener._manual_trigger.is_set()

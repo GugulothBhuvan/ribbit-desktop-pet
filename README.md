@@ -372,7 +372,7 @@ Only one instance can run at a time (a named mutex guards the shared database).
 | **`Ctrl+Space`** (global) | Push-to-talk voice input (Deepgram); configurable via `PTT_HOTKEY` |
 | **Wake word** (opt-in) | Say "Hey Jarvis" (default) for hands-free voice — see below |
 
-> **Voice options.** Push-to-talk (`Ctrl+Space`) works out of the box. For hands-free, set `WAKE_WORD_ENABLED=1` and install the optional local wake-word engine with `pip install -e .[voice]`. It runs **fully on-device** (openWakeWord) — the mic is processed locally and audio only leaves your machine after the wake phrase triggers a recording. Change the phrase with `WAKE_WORD_MODEL` (openWakeWord built-ins: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`).
+> **Voice options.** Push-to-talk (`Ctrl+Space`) works out of the box. For hands-free, set `WAKE_WORD_ENABLED=1` and install the optional local wake-word engine with `pip install -e .[voice]`. It runs **fully on-device** (openWakeWord) — the mic is processed locally and audio only leaves your machine after the wake phrase triggers a recording. Change the phrase with `WAKE_WORD_MODEL` (openWakeWord built-ins: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`). Want your **own** phrase like "Hey Pet"? Train a custom model — see [docs/WAKE_WORD_TRAINING.md](docs/WAKE_WORD_TRAINING.md) — drop the `.onnx` in `assets/wake/`, and set `WAKE_WORD_MODEL=assets/wake/hey_pet.onnx`.
 
 ### Running Tests
 
