@@ -50,10 +50,12 @@ class PetWindow(QWidget):
     ]
 
     def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader,
-                 audio_recorder: AudioRecorder, db, application, scheduler):
+                 audio_recorder: AudioRecorder, db, application, scheduler,
+                 wake_listener=None):
         super().__init__()
         self.event_bus = event_bus
         self.sprite_loader = sprite_loader
+        self.wake_listener = wake_listener
 
         # Subsystems
         self.renderer = SpriteRenderer(sprite_loader)
@@ -271,6 +273,15 @@ class PetWindow(QWidget):
         if now - getattr(self, "_last_ptt_toggle", 0.0) < 0.4:
             return
         self._last_ptt_toggle = now
+
+        # When the wake word owns the mic, the hotkey is a manual "talk now"
+        # trigger on that listener — opening a second mic stream here would
+        # contend with it. The listener captures a fixed window and emits the
+        # same VOICE_RECORD_STOPPED the orchestrator already handles.
+        if self.wake_listener is not None and self.wake_listener.active:
+            logger.info("PTT: manual trigger via wake-word listener.")
+            self.wake_listener.trigger_manual()
+            return
 
         if not self.audio_recorder.is_recording:
             logger.info("PTT: starting audio recording.")

@@ -65,17 +65,19 @@ class CompositionRoot:
         self.scheduler = AmbientScheduler(self.event_bus, self.db, self.context_engine)
         self.telemetry = TelemetryTracker(self.event_bus, self.db, self.application)
 
-        # 6. Plugins, OS observer, and the global PTT hotkey
+        # 6. Plugins, OS observer, global PTT hotkey, and the wake-word listener
         self.plugin_manager = PluginManager(self.event_bus)
         self.observer = Win32Observer(self.event_bus)
         from src.observer.hotkey import GlobalHotkeyListener
         self.hotkey_listener = GlobalHotkeyListener(self.event_bus)
+        from src.observer.wake_word import WakeWordListener
+        self.wake_listener = WakeWordListener(self.event_bus)
 
         # 7. Main window last — every subscriber above is registered before
         #    the first event can possibly fire.
         self.window = PetWindow(
             self.event_bus, self.sprite_loader, self.audio_recorder,
-            self.db, self.application, self.scheduler
+            self.db, self.application, self.scheduler, self.wake_listener
         )
 
         logger.info("Object graph constructed successfully.")
@@ -86,6 +88,7 @@ class CompositionRoot:
         self.telemetry.start()
         self.observer.start()
         self.hotkey_listener.start()
+        self.wake_listener.start()
         self.application.run_async(self.scheduler.run())
         self.window.show()
         self.event_bus.publish(EventType.APPLICATION_STARTED, {})
@@ -101,6 +104,7 @@ class CompositionRoot:
 
         # 2. Stop event producers
         self.hotkey_listener.stop()
+        self.wake_listener.stop()
         self.observer.stop()
         self.scheduler.stop()
 

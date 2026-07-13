@@ -369,7 +369,10 @@ Only one instance can run at a time (a named mutex guards the shared database).
 | **Double-click** | Wave or a full crouch→launch→landing jump |
 | **Drag & release** | Throw with momentum; gravity takes over |
 | **Right-click** | Menu: mascot, AI model, scale, typing speed, Calm Mode, reminders, Pomodoro, mute |
-| **`Ctrl+Shift+Space`** (global) | Toggle push-to-talk voice input (Deepgram) |
+| **`Ctrl+Space`** (global) | Push-to-talk voice input (Deepgram); configurable via `PTT_HOTKEY` |
+| **Wake word** (opt-in) | Say "Hey Jarvis" (default) for hands-free voice — see below |
+
+> **Voice options.** Push-to-talk (`Ctrl+Space`) works out of the box. For hands-free, set `WAKE_WORD_ENABLED=1` and install the optional local wake-word engine with `pip install -e .[voice]`. It runs **fully on-device** (openWakeWord) — the mic is processed locally and audio only leaves your machine after the wake phrase triggers a recording. Change the phrase with `WAKE_WORD_MODEL` (openWakeWord built-ins: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`).
 
 ### Running Tests
 

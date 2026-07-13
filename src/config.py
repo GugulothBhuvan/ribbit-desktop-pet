@@ -39,6 +39,15 @@ class Config:
     # NOTE: "ctrl+space" is also IDE autocomplete — a global binding shadows it
     # everywhere. Change this if that bothers you.
     PTT_HOTKEY = os.getenv("PTT_HOTKEY", "ctrl+space")
+
+    # Local wake word (opt-in — this turns the mic ON continuously, processed
+    # entirely on-device via openWakeWord; audio only leaves the machine after
+    # the phrase triggers a recording). Off by default to preserve the "mic is
+    # off until you act" privacy posture.
+    WAKE_WORD_ENABLED = os.getenv("WAKE_WORD_ENABLED", "0") == "1"
+    WAKE_WORD_MODEL = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")  # openWakeWord builtin
+    WAKE_WORD_RECORD_SEC = float(os.getenv("WAKE_WORD_RECORD_SEC", "5"))
+    WAKE_WORD_THRESHOLD = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
     
     # Behavior Settings
     WANDER_INTERVAL_MIN = int(os.getenv("WANDER_INTERVAL_MIN", "2"))
