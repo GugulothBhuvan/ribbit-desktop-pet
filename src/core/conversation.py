@@ -54,6 +54,10 @@ class ConversationManager(QThread):
         self._end_session = threading.Event()
         self._turn_done = threading.Event()
         self._active = False
+        # Cleared once we know conversation mode cannot run here (voice extra
+        # missing / VAD won't init), so the hotkey can fall back to push-to-talk
+        # instead of silently doing nothing.
+        self._usable = True
 
         self._pa = None
         self._stream = None
@@ -69,6 +73,12 @@ class ConversationManager(QThread):
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def usable(self) -> bool:
+        """False once conversation mode is known to be unavailable here. Callers
+        must fall back to push-to-talk rather than leaving a dead hotkey."""
+        return self._usable
 
     def _on_turn_signal(self, event_type: str, data: dict):
         self._turn_done.set()
@@ -103,15 +113,19 @@ class ConversationManager(QThread):
             import pyaudio
             from openwakeword.vad import VAD
         except ImportError:
+            self._usable = False
             logger.warning("Conversation mode needs the voice extra "
-                           "(pip install -e .[voice]). Feature disabled.")
+                           "(pip install -e .[voice]); falling back to "
+                           "press-to-start / press-to-stop push-to-talk.")
             return
         self._np = np
         self._pyaudio = pyaudio
         try:
             self._vad = VAD()
         except Exception as e:
-            logger.error(f"Could not initialise VAD: {e}. Conversation mode disabled.")
+            self._usable = False
+            logger.error(f"Could not initialise VAD: {e}. "
+                         "Falling back to push-to-talk.")
             return
 
         logger.info("Conversation mode ready (press the talk hotkey to start).")

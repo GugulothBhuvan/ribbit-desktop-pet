@@ -302,7 +302,11 @@ class PetWindow(QWidget):
         # Hands-free conversation mode: the hotkey starts a session, then VAD
         # handles turn-taking (talk, pause, it replies, listen again). Pressing
         # it again ends the session. This replaces the old record/stop toggle.
-        if self.conversation_manager is not None and Config.CONVERSATION_MODE:
+        # `usable` guards the case where the voice extra isn't installed: the
+        # conversation thread has already exited, so routing here would show
+        # "I'm listening..." and then do nothing at all. Fall through to PTT.
+        if (self.conversation_manager is not None and Config.CONVERSATION_MODE
+                and self.conversation_manager.usable):
             if self.conversation_manager.active:
                 logger.info("PTT: ending conversation session.")
             else:

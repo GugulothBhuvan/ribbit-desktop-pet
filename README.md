@@ -339,6 +339,7 @@ To keep the application ambient and prevent it from competing with active compil
 3. ✅ **Singleton Thread Races (AV-3/AV-4):** `QApplication` is created first; every Qt object is constructed on the GUI thread; the worker loop hosts no Qt objects.
 4. ✅ **Security (C-5):** Gemini key sent via `x-goog-api-key` header; no raw exception text reaches speech bubbles or logs; window titles logged at `DEBUG` only; rotating log files; PTT audio recorded to the OS temp dir and deleted after transcription.
 5. ✅ **Performance:** Repaints fire only on visible change (frame/position/facing); screen captures are downscaled (≤1024px) and JPEG-encoded on the worker loop. **Measured via `tools/soak_monitor.py`: idle CPU 0.23% avg / 0.41% max, RSS 85 MB** — within all budgets above.
+6. ✅ **Multi-monitor (verified live on a two-display setup, 2026-07-17):** The pet roams the full virtual desktop while gravity resolves per-monitor; bubbles and screen capture follow it. Two bugs fixed: screen edges acted as solid walls (pet could never reach a second display), and captures of any non-primary monitor came back blank because `grabWindow`'s x/y were double-offset — the LLM was faithfully describing an empty image.
 
 ---
 
@@ -370,8 +371,16 @@ To keep the application ambient and prevent it from competing with active compil
 3. Install dependencies:
 
    ```bash
-   pip install -r requirements.txt
+   pip install -e ".[voice]"
    ```
+
+   > [!IMPORTANT]
+   > Use the `[voice]` extra. It pulls `openwakeword` + `numpy`, which provide the
+   > **Silero VAD** that hands-free conversation mode (on by default) needs for
+   > turn-taking. Without them the pet still runs and still talks — the hotkey just
+   > falls back to press-to-start / press-to-stop recording.
+   >
+   > `pip install -r requirements.txt` installs the core deps only (no VAD, no wake word).
 
 4. Copy the environment template and insert your API credentials:
 
