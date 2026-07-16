@@ -42,6 +42,12 @@ search-path = ["."]
 # would mean renaming paintEvent(event) -> paintEvent(a0) across every widget.
 bad-override-param-name = false
 
+# pyaudio (C extension) and openwakeword (ML lib) ship no type information and
+# have no maintained stubs. This warning only restates that on every import of
+# them; it says nothing about our code. Values from both are annotated `Any` at
+# their boundaries (see core/conversation.py, core/tts.py).
+untyped-import = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "strict"

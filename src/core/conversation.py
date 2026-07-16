@@ -27,6 +27,7 @@ import uuid
 import tempfile
 import threading
 from collections import deque
+from typing import Any
 
 from PyQt6.QtCore import QThread
 from src.config import Config
@@ -59,11 +60,15 @@ class ConversationManager(QThread):
         # instead of silently doing nothing.
         self._usable = True
 
-        self._pa = None
-        self._stream = None
-        self._vad = None
-        self._np = None
-        self._pyaudio = None
+        # Handles to optional, untyped deps, imported lazily in run() so the app
+        # still starts without the [voice] extra. Typed Any deliberately: they
+        # are None until run() populates them, and none of these libraries ship
+        # type information anyway.
+        self._pa: Any = None
+        self._stream: Any = None
+        self._vad: Any = None
+        self._np: Any = None
+        self._pyaudio: Any = None
 
         # The pet finishing its reply (spoken or not), or an error, unblocks the
         # next listening turn. Both are thread-safe Event.set() calls.

@@ -14,6 +14,7 @@ Everything degrades gracefully: no key, no PyAudio, muted, or a synthesis error
 just means no audio — the text bubble still shows.
 """
 import threading
+from typing import Any
 
 from PyQt6.QtCore import QObject
 from src.config import Config
@@ -40,7 +41,7 @@ class TTSManager(QObject):
         self.application = application
         self.provider = self._build_provider()
 
-        self._pa = None                     # lazily created PyAudio instance
+        self._pa: Any = None                # lazily created PyAudio instance (untyped lib)
         self._play_lock = threading.Lock()  # serializes playback threads
         self._stop_flag = threading.Event() # asks the active playback to abort
 
