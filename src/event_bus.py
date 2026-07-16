@@ -61,6 +61,16 @@ class EventType:
     CHAT_QUERY_REQUESTED = "CHAT_QUERY_REQUESTED"
     PTT_TOGGLED = "PTT_TOGGLED"  # Global hotkey toggled push-to-talk
 
+    # Hands-free conversation mode
+    CONVERSATION_STARTED = "CONVERSATION_STARTED"
+    CONVERSATION_ENDED = "CONVERSATION_ENDED"
+    # Published the instant audio actually starts, carrying the spoken text and
+    # its exact duration so the bubble can type in lockstep with the voice.
+    SPEECH_PLAYBACK_STARTED = "SPEECH_PLAYBACK_STARTED"
+    # Published when the pet finishes speaking a reply (or has nothing to speak);
+    # lets the conversation loop know it's safe to reopen the mic without echo.
+    SPEECH_PLAYBACK_FINISHED = "SPEECH_PLAYBACK_FINISHED"
+
 
 class EventBus(QObject):
     """

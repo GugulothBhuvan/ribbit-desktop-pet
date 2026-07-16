@@ -60,6 +60,8 @@ class CompositionRoot:
             self.event_bus, self.context_engine, self.db, self.application
         )
         self.audio_recorder = AudioRecorder()
+        from src.core.tts import TTSManager
+        self.tts = TTSManager(self.event_bus, self.application)
 
         # 5. Worker-loop subsystems (constructed here, run on the worker)
         self.scheduler = AmbientScheduler(self.event_bus, self.db, self.context_engine)
@@ -72,12 +74,15 @@ class CompositionRoot:
         self.hotkey_listener = GlobalHotkeyListener(self.event_bus)
         from src.observer.wake_word import WakeWordListener
         self.wake_listener = WakeWordListener(self.event_bus)
+        from src.core.conversation import ConversationManager
+        self.conversation = ConversationManager(self.event_bus)
 
         # 7. Main window last — every subscriber above is registered before
         #    the first event can possibly fire.
         self.window = PetWindow(
             self.event_bus, self.sprite_loader, self.audio_recorder,
-            self.db, self.application, self.scheduler, self.wake_listener
+            self.db, self.application, self.scheduler, self.wake_listener,
+            conversation_manager=self.conversation
         )
 
         logger.info("Object graph constructed successfully.")
@@ -89,6 +94,7 @@ class CompositionRoot:
         self.observer.start()
         self.hotkey_listener.start()
         self.wake_listener.start()
+        self.conversation.start()
         self.application.run_async(self.scheduler.run())
         self.window.show()
         self.event_bus.publish(EventType.APPLICATION_STARTED, {})
@@ -105,6 +111,7 @@ class CompositionRoot:
         # 2. Stop event producers
         self.hotkey_listener.stop()
         self.wake_listener.stop()
+        self.conversation.stop()
         self.observer.stop()
         self.scheduler.stop()
 
@@ -123,6 +130,7 @@ class CompositionRoot:
                 logger.warning(f"Resource cleanup did not finish cleanly: {e}")
 
         # 4. Local devices, then the loop itself (drains remaining tasks)
+        self.tts.cleanup()
         self.audio_recorder.cleanup()
         self.application.shutdown()
         logger.info("Shutdown complete.")

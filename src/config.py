@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from src.constants import DEFAULT_DB_PATH
+from src.constants import DEFAULT_DB_PATH, DEFAULT_PET_NAME, DEFAULT_PET_PERSONA
 from src.utils.logger import get_logger
 
 # Load environment variables from .env
@@ -23,8 +23,24 @@ class Config:
     # replies at speech-bubble token limits (verified 2026-07-12).
     KRUTRIM_MODEL = os.getenv("KRUTRIM_MODEL", "gemma-4-E4B-it")
     
-    # Deepgram Voice API
+    # Deepgram Voice API (speech-to-text AND text-to-speech / Aura)
     DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+
+    # Text-to-speech: the pet speaks its replies aloud. Only conversational
+    # replies (you spoke to it) and canned voice-flow lines are spoken; ambient
+    # screen comments stay text-only.
+    TTS_ENABLED = os.getenv("TTS_ENABLED", "1") == "1"
+    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "sarvam").lower()  # sarvam | deepgram
+    TTS_VOICE = os.getenv("TTS_VOICE", "aura-asteria-en")  # Deepgram Aura model
+
+    # Sarvam AI (Bulbul) TTS — real Indian-English voices, matching the persona.
+    SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")
+    # Verified live 2026-07-17: bulbul:v1 is retired (API accepts only v2/v3);
+    # v3 rejects the v2 speaker roster. v2 + 'karun' returns 22050Hz mono PCM.
+    SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "karun")
+    SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v2")
+    SARVAM_TTS_LANGUAGE = os.getenv("SARVAM_TTS_LANGUAGE", "en-IN")
+    SARVAM_TTS_SAMPLE_RATE = int(os.getenv("SARVAM_TTS_SAMPLE_RATE", "22050"))
     
     # Local Database
     DB_PATH = os.getenv("DB_PATH", DEFAULT_DB_PATH)
@@ -49,6 +65,17 @@ class Config:
     WAKE_WORD_RECORD_SEC = float(os.getenv("WAKE_WORD_RECORD_SEC", "5"))
     WAKE_WORD_THRESHOLD = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
     
+    # Hands-free conversation mode: trigger once (Ctrl+Space), then just talk.
+    # VAD (Silero, bundled with openWakeWord) auto-detects when you stop speaking,
+    # the pet replies (text + voice), and the mic reopens for the next turn until
+    # you go silent past the idle timeout or press the hotkey again.
+    CONVERSATION_MODE = os.getenv("CONVERSATION_MODE", "1") == "1"
+    CONVERSATION_VAD_THRESHOLD = float(os.getenv("CONVERSATION_VAD_THRESHOLD", "0.5"))
+    CONVERSATION_ENDPOINT_MS = int(os.getenv("CONVERSATION_ENDPOINT_MS", "800"))       # silence that ends a turn
+    CONVERSATION_IDLE_TIMEOUT_SEC = float(os.getenv("CONVERSATION_IDLE_TIMEOUT_SEC", "12"))  # no speech -> end session
+    CONVERSATION_MAX_UTTERANCE_SEC = float(os.getenv("CONVERSATION_MAX_UTTERANCE_SEC", "15"))
+    CONVERSATION_MIN_SPEECH_MS = int(os.getenv("CONVERSATION_MIN_SPEECH_MS", "200"))   # ignore shorter blips
+
     # Behavior Settings
     WANDER_INTERVAL_MIN = int(os.getenv("WANDER_INTERVAL_MIN", "2"))
     WANDER_INTERVAL_MAX = int(os.getenv("WANDER_INTERVAL_MAX", "5"))
@@ -64,6 +91,11 @@ class Config:
     # Mascot Settings
     SELECTED_MASCOT = "default"
 
+    # Persona — the character the pet plays. Fully customizable via .env so the
+    # pet's name, species, tone and quirks live in config, not in code.
+    PET_NAME = os.getenv("PET_NAME", DEFAULT_PET_NAME)
+    PET_PERSONA = os.getenv("PET_PERSONA", DEFAULT_PET_PERSONA)
+
     # Accessibility / behavior toggles (persisted in the settings table)
     MUTED = False
     REDUCED_MOTION = False  # "Calm mode": pet stays idle, no wandering/napping
@@ -74,6 +106,10 @@ class Config:
         if cls.LLM_PROVIDER not in ["krutrim", "gemini"]:
             logger.warning(f"Unknown LLM_PROVIDER '{cls.LLM_PROVIDER}', defaulting to 'krutrim'")
             cls.LLM_PROVIDER = "krutrim"
+
+        if cls.TTS_PROVIDER not in ["sarvam", "deepgram"]:
+            logger.warning(f"Unknown TTS_PROVIDER '{cls.TTS_PROVIDER}', defaulting to 'sarvam'")
+            cls.TTS_PROVIDER = "sarvam"
         
         # Verify database directory exists
         db_dir = os.path.dirname(cls.DB_PATH)

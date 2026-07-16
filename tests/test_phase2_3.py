@@ -74,6 +74,44 @@ def test_collision_floor_uses_full_height(qapp):
     assert vy == 0.0
 
 
+# --- multi-monitor: pet must not be trapped on one screen -------------------
+
+def test_walls_span_the_whole_virtual_desktop(qapp):
+    """Walls come from the union of all screens, never a single monitor —
+    otherwise a screen seam is a solid wall and the pet can never walk onto an
+    extended monitor (reported live on a laptop + external display)."""
+    from src.physics.collision import CollisionResolver
+    from PyQt6.QtGui import QGuiApplication
+
+    desktop = CollisionResolver.get_virtual_desktop_geometry()
+
+    # The virtual desktop must contain every screen's work area.
+    for screen in QGuiApplication.screens():
+        assert desktop.contains(screen.availableGeometry())
+
+    # A pet moving right must be clamped to the DESKTOP edge, not a screen edge.
+    w = h = 100
+    far_right = float(desktop.left() + desktop.width() + 500)
+    x, _, _, _, _ = CollisionResolver.resolve_boundaries(
+        far_right, float(desktop.top() + 10), w, h, 5.0, 0.0)
+    assert x == desktop.left() + desktop.width() - w
+
+
+def test_floor_stays_per_monitor(qapp):
+    """Floor must still come from the pet's own monitor (each has its own
+    taskbar), even though walls span all monitors."""
+    from src.physics.collision import CollisionResolver
+    from PyQt6.QtGui import QGuiApplication
+
+    screen_geom = QGuiApplication.primaryScreen().availableGeometry()
+    w = h = 100
+    _, y, _, _, details = CollisionResolver.resolve_boundaries(
+        float(screen_geom.left() + 10), float(screen_geom.top() + screen_geom.height() + 500),
+        w, h, 0.0, 5.0)
+    assert y == screen_geom.top() + screen_geom.height() - h
+    assert details["screen_rect"] == screen_geom
+
+
 # --- state priority: physics states not preempted by AI states --------------
 
 def test_physical_states_reject_ai_preemption(qapp, event_bus):

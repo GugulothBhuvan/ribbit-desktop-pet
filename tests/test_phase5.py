@@ -1,6 +1,67 @@
 """Regression tests for Phase 5 (AI hardening — see MVP_PLAN.md)."""
 from src.config import Config
 from src.ai.prompts import build_system_prompt
+from src.ai.orchestrator import clamp_stream_text
+from src.constants import MAX_CHARACTERS, MAX_CHARACTERS_CONVERSATION
+
+
+# --- Persona is config-driven + two-tier reply length ------------------------
+
+_BASE_CTX = {
+    "active_window": "VS Code",
+    "current_time": "10:00 AM",
+    "pet_active_state": "idle",
+    "battery_percent": None,
+    "git_available": False,
+    "test_outcome": "unknown",
+}
+
+
+def test_prompt_uses_configured_persona():
+    """Name and persona come from Config, not a hardcoded string."""
+    orig_name, orig_persona = Config.PET_NAME, Config.PET_PERSONA
+    try:
+        Config.PET_NAME = "Zorp"
+        Config.PET_PERSONA = "You are Zorp, a grumpy space slug."
+        prompt = build_system_prompt(_BASE_CTX, {})
+        assert "Zorp" in prompt
+        assert "grumpy space slug" in prompt
+    finally:
+        Config.PET_NAME, Config.PET_PERSONA = orig_name, orig_persona
+
+
+def test_default_persona_is_ribbit():
+    prompt = build_system_prompt(_BASE_CTX, {})
+    assert "Ribbit" in prompt
+
+
+def test_mode_selects_response_rules():
+    """Ambient asides stay terse; conversation unlocks the back-and-forth rules."""
+    ambient = build_system_prompt(_BASE_CTX, {}, conversational=False)
+    chat = build_system_prompt(_BASE_CTX, {}, conversational=True)
+
+    assert "150 characters" in ambient
+    assert "quick aside" in ambient
+    assert "150 characters" not in chat
+    assert "have a conversation" in chat
+    assert "450 characters" in chat
+
+
+def test_conversation_cap_is_larger_than_ambient():
+    assert MAX_CHARACTERS_CONVERSATION > MAX_CHARACTERS
+
+
+def test_clamp_respects_conversation_budget():
+    """A chunk that overflows the ambient cap but fits conversation must survive
+    when the conversational limit is passed."""
+    text = "x" * (MAX_CHARACTERS + 50)  # over ambient, under conversation
+    out, final = clamp_stream_text(0, text, MAX_CHARACTERS_CONVERSATION)
+    assert out == text
+    assert final is False
+    # Same chunk under the ambient cap gets cut
+    out2, final2 = clamp_stream_text(0, text, MAX_CHARACTERS)
+    assert final2 is True
+    assert out2.endswith("…")
 
 
 # --- 5.3: system prompt omits unavailable telemetry --------------------------

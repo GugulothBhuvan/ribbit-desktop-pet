@@ -46,16 +46,19 @@ class PetWindow(QWidget):
         EventType.TESTS_PASSED,
         EventType.TESTS_FAILED,
         EventType.SPEECH_REQUESTED,
+        EventType.SPEECH_PLAYBACK_STARTED,
+        EventType.SPEECH_PLAYBACK_FINISHED,
         EventType.PTT_TOGGLED,
     ]
 
     def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader,
                  audio_recorder: AudioRecorder, db, application, scheduler,
-                 wake_listener=None):
+                 wake_listener=None, conversation_manager=None):
         super().__init__()
         self.event_bus = event_bus
         self.sprite_loader = sprite_loader
         self.wake_listener = wake_listener
+        self.conversation_manager = conversation_manager
 
         # Subsystems
         self.renderer = SpriteRenderer(sprite_loader)
@@ -67,6 +70,8 @@ class PetWindow(QWidget):
         self.is_dragging = False
         self.is_muted = Config.MUTED  # persisted preference
         self.drag_offset = QPoint()
+        # Reply held back while waiting for its audio (see _reply_will_be_spoken)
+        self._pending_spoken_text = ""
 
         # Click/drag/double-click discrimination (audit M-2): a press is only a
         # click if the cursor moves < CLICK_DRAG_THRESHOLD_PX; the click action
@@ -176,6 +181,13 @@ class PetWindow(QWidget):
             return
         self.speech_bubble.show_text(text, self.pos(), self.pet_width, placeholder=placeholder)
 
+    @staticmethod
+    def _reply_will_be_spoken(data: dict) -> bool:
+        """True when this reply is also going to TTS, meaning the bubble should
+        wait for the audio instead of typing ahead of it. Mirrors the same
+        decision TTSManager makes."""
+        return bool(data.get("conversational")) and Config.TTS_ENABLED and not Config.MUTED
+
     def _display_ambient_bubble(self, text: str) -> bool:
         """Shows a bubble for NON-user-initiated speech, subject to the spam
         cooldown (PRD 'Never Spam'). Returns False when suppressed."""
@@ -273,6 +285,18 @@ class PetWindow(QWidget):
         if now - getattr(self, "_last_ptt_toggle", 0.0) < 0.4:
             return
         self._last_ptt_toggle = now
+
+        # Hands-free conversation mode: the hotkey starts a session, then VAD
+        # handles turn-taking (talk, pause, it replies, listen again). Pressing
+        # it again ends the session. This replaces the old record/stop toggle.
+        if self.conversation_manager is not None and Config.CONVERSATION_MODE:
+            if self.conversation_manager.active:
+                logger.info("PTT: ending conversation session.")
+            else:
+                logger.info("PTT: starting hands-free conversation.")
+                self.display_speech_bubble("I'm listening… just talk. (Ctrl+Space to stop)")
+            self.conversation_manager.toggle_session()
+            return
 
         # When the wake word owns the mic, the hotkey is a manual "talk now"
         # trigger on that listener — opening a second mic stream here would
@@ -418,13 +442,41 @@ class PetWindow(QWidget):
 
         elif event_type == EventType.LLM_RESPONSE_CHUNK:
             chunk = data.get("text", "")
+            if self._reply_will_be_spoken(data):
+                # Spoken replies stay on "Thinking..." until the audio actually
+                # starts; streaming them now would finish the text seconds
+                # before the voice even begins.
+                return
             if not self.is_muted:
                 self.speech_bubble.append_chunk(chunk, self.pos(), self.pet_width)
 
         elif event_type == EventType.LLM_RESPONSE_RECEIVED:
+            if self._reply_will_be_spoken(data):
+                # Hold "Thinking..." — SPEECH_PLAYBACK_STARTED will type this
+                # text paced to the voice. Remembered so we can still show it
+                # if synthesis fails and no audio ever plays.
+                self._pending_spoken_text = data.get("text", "")
+                return
             # The text already streamed into the bubble — just let it finish
             # typing and start its dismiss countdown (no re-typing glitch)
             self.speech_bubble.finish_stream()
+
+        elif event_type == EventType.SPEECH_PLAYBACK_STARTED:
+            # Audio just began: type the words at exactly the voice's pace.
+            self._pending_spoken_text = ""
+            text = data.get("text", "")
+            if text and not self.is_muted:
+                self.speech_bubble.show_text_timed(
+                    text, float(data.get("duration_sec", 0.0)),
+                    self.pos(), self.pet_width)
+
+        elif event_type == EventType.SPEECH_PLAYBACK_FINISHED:
+            # Fallback: synthesis failed, so no audio ever played and the bubble
+            # is still on the placeholder. Show the reply at normal speed rather
+            # than leaving the user staring at "Thinking...".
+            if self._pending_spoken_text:
+                self.display_speech_bubble(self._pending_spoken_text)
+                self._pending_spoken_text = ""
 
         elif event_type == EventType.LLM_ERROR_OCCURRED:
             self.display_speech_bubble("I'm having trouble thinking right now.")
@@ -475,7 +527,8 @@ class PetWindow(QWidget):
         elif event_type == EventType.VISION_CAPTURE_REQUESTED:
             prompt = data.get("prompt", "Explain what is on my screen in a witty, pet-like way.")
             pet_state = data.get("pet_state", {})
-            self._capture_and_analyze_screen(prompt, pet_state)
+            conversational = data.get("conversational", False)
+            self._capture_and_analyze_screen(prompt, pet_state, conversational)
 
         elif event_type == EventType.TESTS_PASSED:
             if self._display_ambient_bubble("All unit tests passed! Excellent work! 🎉"):
@@ -499,15 +552,15 @@ class PetWindow(QWidget):
 
         self.renderer.set_animation(self.renderer.current_state, self.renderer.loop)
 
-    def _capture_and_analyze_screen(self, prompt: str, pet_state: dict):
+    def _capture_and_analyze_screen(self, prompt: str, pet_state: dict, conversational: bool = False):
         """Prepares the screen capture by hiding visual overlay widgets."""
         logger.info("Starting screen capture routine...")
         self.hide()
         self.speech_bubble.hide()
         # Wait for window manager to register hide and paint desktop
-        QTimer.singleShot(250, lambda: self._execute_capture(prompt, pet_state))
+        QTimer.singleShot(250, lambda: self._execute_capture(prompt, pet_state, conversational))
 
-    def _execute_capture(self, prompt: str, pet_state: dict):
+    def _execute_capture(self, prompt: str, pet_state: dict, conversational: bool = False):
         """Grabs the screen and publishes the RAW QImage for the orchestrator.
 
         Only the grab itself runs here — downscaling and JPEG encoding happen
@@ -515,12 +568,19 @@ class PetWindow(QWidget):
         the GUI thread for 100ms+)."""
         try:
             from PyQt6.QtWidgets import QApplication
-            screen = QApplication.primaryScreen()
+            # Capture the monitor the PET is sitting on, not always the primary
+            # one — on a multi-monitor setup "look at my screen" otherwise only
+            # ever showed the laptop, whichever display the pet was on.
+            screen = self.screen() or QApplication.primaryScreen()
             if not screen:
-                raise RuntimeError("Primary monitor not found.")
+                raise RuntimeError("No monitor found to capture.")
 
-            image = screen.grabWindow(0).toImage()
-            logger.info(f"Screen captured: {image.width()}x{image.height()}")
+            # Grab only this monitor's region of the virtual desktop.
+            geo = screen.geometry()
+            image = screen.grabWindow(0, geo.x(), geo.y(),
+                                      geo.width(), geo.height()).toImage()
+            logger.info(f"Screen captured from '{screen.name()}': "
+                        f"{image.width()}x{image.height()}")
 
             # Restore pet visibility
             self.show()
@@ -532,7 +592,8 @@ class PetWindow(QWidget):
             self.event_bus.publish(EventType.SCREEN_CAPTURED, {
                 "prompt": prompt,
                 "pet_state": pet_state,
-                "image": image
+                "image": image,
+                "conversational": conversational
             })
         except Exception as e:
             logger.error(f"Failed to capture screen: {e}")

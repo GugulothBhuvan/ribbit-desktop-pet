@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QImage
 from src.config import Config
-from src.constants import MAX_CHARACTERS, PetState
+from src.constants import MAX_CHARACTERS, MAX_CHARACTERS_CONVERSATION, PetState
 from src.event_bus import EventBus, EventType
 from src.ai.context_engine import ContextEngine
 from src.ai.prompts import build_system_prompt
@@ -111,8 +111,9 @@ class AIOrchestrator(QObject):
             prompt = data.get("prompt", "Analyze my screen.")
             pet_state = data.get("pet_state", {})
             image = data.get("image")
+            conversational = data.get("conversational", False)
             if isinstance(image, QImage) and not image.isNull():
-                self.handle_user_query_with_image(prompt, pet_state, image)
+                self.handle_user_query_with_image(prompt, pet_state, image, conversational)
             else:
                 logger.warning("SCREEN_CAPTURED event carried no usable image; ignoring.")
 
@@ -137,7 +138,8 @@ class AIOrchestrator(QObject):
             transcript = await dp.transcribe(wav_path)
             if transcript and transcript.strip():
                 logger.info(f"Orchestrator: Voice transcribed successfully: '{transcript}'")
-                self.handle_user_query(transcript, {})
+                # Voice is the user talking directly TO the pet -> conversational.
+                self.handle_user_query(transcript, {}, conversational=True)
             else:
                 # Empty transcript = silence / too-short clip. That's not an
                 # error — nudge and settle back to idle rather than showing
@@ -161,8 +163,12 @@ class AIOrchestrator(QObject):
             return self.krutrim_provider
         return self.gemini_provider
 
-    def handle_user_query(self, user_prompt: str, pet_state: Dict[str, Any]):
-        """Initiates the AI response pipeline asynchronously."""
+    def handle_user_query(self, user_prompt: str, pet_state: Dict[str, Any],
+                          conversational: bool = False):
+        """Initiates the AI response pipeline asynchronously.
+
+        conversational=True (voice / direct chat) unlocks the longer, back-and-
+        forth reply mode; ambient/canned prompts stay terse."""
         if self._query_in_flight:
             logger.info("Query already in flight; ignoring new query.")
             return
@@ -177,15 +183,17 @@ class AIOrchestrator(QObject):
             logger.info("Visual query detected. Requesting screen capture.")
             self.event_bus.publish(EventType.VISION_CAPTURE_REQUESTED, {
                 "prompt": user_prompt,
-                "pet_state": pet_state
+                "pet_state": pet_state,
+                "conversational": conversational
             })
             return
 
         self._query_in_flight = True
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
-        self.application.run_async(self._stream_query(user_prompt, pet_state))
+        self.application.run_async(self._stream_query(user_prompt, pet_state, conversational=conversational))
 
-    def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any], image: QImage):
+    def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any],
+                                     image: QImage, conversational: bool = False):
         """Initiates the AI response pipeline with a raw screen capture attached.
 
         The heavy downscale/JPEG encode happens on the worker loop, never here."""
@@ -202,10 +210,11 @@ class AIOrchestrator(QObject):
         logger.info(f"Handling user query with screen capture: '{user_prompt}'")
         self._query_in_flight = True
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
-        self.application.run_async(self._stream_query(user_prompt, pet_state, image))
+        self.application.run_async(
+            self._stream_query(user_prompt, pet_state, image, conversational=conversational))
 
     async def _stream_query(self, user_prompt: str, pet_state: Dict[str, Any],
-                            image: Optional[QImage] = None):
+                            image: Optional[QImage] = None, conversational: bool = False):
         """Full query pipeline on the worker loop: context -> prompt -> stream."""
         try:
             loop = asyncio.get_running_loop()
@@ -223,28 +232,35 @@ class AIOrchestrator(QObject):
             # 3. Conversation history (PRD §13: last 20 messages)
             context["conversation_history"] = await self.conv_repo.get_recent_messages(limit=20)
 
-            # 4. Long-term memories + system prompt
+            # 4. Long-term memories + system prompt (mode-aware persona/rules)
             facts = await self.memory_repo.get_all_facts()
-            context["system_prompt"] = build_system_prompt(context, facts)
+            context["system_prompt"] = build_system_prompt(context, facts, conversational)
 
-            # 5. Stream, sanitize, and clamp to the PRD character budget
+            # 5. Stream, sanitize, and clamp. Conversation gets a longer budget
+            #    than a terse ambient aside.
+            char_limit = MAX_CHARACTERS_CONVERSATION if conversational else MAX_CHARACTERS
             provider = self.get_active_provider()
             full_response = ""
             async for raw_chunk in provider.stream(user_prompt, context):
                 chunk = sanitize_chunk(raw_chunk)
                 if not chunk:
                     continue
-                chunk, is_final = clamp_stream_text(len(full_response), chunk)
+                chunk, is_final = clamp_stream_text(len(full_response), chunk, char_limit)
                 if chunk:
                     full_response += chunk
-                    self.event_bus.publish(EventType.LLM_RESPONSE_CHUNK, {"text": chunk})
+                    # `conversational` tells the window whether this reply will
+                    # also be spoken — if so it holds the bubble until the audio
+                    # starts instead of racing ahead of the voice.
+                    self.event_bus.publish(EventType.LLM_RESPONSE_CHUNK,
+                                           {"text": chunk, "conversational": conversational})
                 if is_final:
                     break
 
             full_response = full_response.strip()
             logger.info(f"LLM query finished. Complete response: '{full_response}'")
             await self._save_interaction(user_prompt, full_response)
-            self.event_bus.publish(EventType.LLM_RESPONSE_RECEIVED, {"text": full_response})
+            self.event_bus.publish(EventType.LLM_RESPONSE_RECEIVED,
+                                   {"text": full_response, "conversational": conversational})
 
         except Exception as e:
             logger.error(f"LLM query failed: {e}")

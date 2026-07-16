@@ -76,10 +76,10 @@ class WakeWordListener(QThread):
             return
 
         try:
-            import numpy as np
-            import pyaudio
-            from openwakeword.model import Model
-            from openwakeword.utils import download_models
+            import numpy as np  # type: ignore
+            import pyaudio  # type: ignore
+            from openwakeword.model import Model  # type: ignore
+            from openwakeword.utils import download_models  # type: ignore
         except ImportError:
             logger.warning("Wake word enabled but dependencies missing. "
                            "Run: pip install openwakeword numpy. Hotkey still works.")
@@ -125,8 +125,11 @@ class WakeWordListener(QThread):
                     continue
 
                 audio = np.frombuffer(data, dtype=np.int16)
+                # predict() returns a {model_name: score} dict; the isinstance
+                # guard both narrows the (untyped) return for the checker and
+                # defends against a malformed model.
                 scores = self._model.predict(audio)
-                if scores.get(self._score_key, 0.0) >= Config.WAKE_WORD_THRESHOLD:
+                if isinstance(scores, dict) and scores.get(self._score_key, 0.0) >= Config.WAKE_WORD_THRESHOLD:
                     logger.info("Wake word detected.")
                     self._capture_utterance()
         finally:
@@ -134,6 +137,11 @@ class WakeWordListener(QThread):
 
     def _capture_utterance(self):
         """Record the next few seconds on the already-open stream, save, emit."""
+        stream = self._stream
+        if stream is None:
+            logger.error("Cannot capture utterance: audio stream is not initialized.")
+            return
+
         self._capturing = True
         self.event_bus.publish(EventType.VOICE_RECORD_STARTED, {})
         self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.LISTEN})
@@ -142,16 +150,18 @@ class WakeWordListener(QThread):
         deadline = time.time() + Config.WAKE_WORD_RECORD_SEC
         while time.time() < deadline and self._running:
             try:
-                frames.append(self._stream.read(FRAME_SAMPLES, exception_on_overflow=False))
+                frames.append(stream.read(FRAME_SAMPLES, exception_on_overflow=False))
             except Exception:
                 break
 
         wav_path = self._save_wav(frames)
         # Reset the model so the tail of this utterance can't re-trigger
-        try:
-            self._model.reset()
-        except Exception:
-            pass
+        model = self._model
+        if model is not None:
+            try:
+                model.reset()
+            except Exception:
+                pass
         self._capturing = False
         self.event_bus.publish(EventType.VOICE_RECORD_STOPPED, {"wav_path": wav_path})
 

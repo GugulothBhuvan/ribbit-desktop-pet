@@ -29,6 +29,26 @@ class CollisionResolver:
             return screens[0].availableGeometry()
         return QRect(0, 0, 1920, 1080)
 
+    @staticmethod
+    def get_virtual_desktop_geometry() -> QRect:
+        """Union of every screen's work area — the whole span the pet may roam.
+
+        Walls must come from this, NOT from a single screen: clamping x to the
+        active monitor's edges made those edges solid, trapping the pet on one
+        display and making it impossible to walk onto an extended monitor.
+        """
+        if not QGuiApplication.instance():
+            return QRect(0, 0, 1920, 1080)
+
+        screens = QGuiApplication.screens()  # static: avoids QCoreApplication typing
+        if not screens:
+            return QRect(0, 0, 1920, 1080)
+
+        rect = screens[0].availableGeometry()
+        for screen in screens[1:]:
+            rect = rect.united(screen.availableGeometry())
+        return rect
+
     @classmethod
     def resolve_boundaries(
         cls, x: float, y: float, w: int, h: int, vx: float, vy: float
@@ -37,15 +57,19 @@ class CollisionResolver:
         Validates boundaries.
         Returns: (new_x, new_y, new_vx, new_vy, collision_details)
         """
-        # Determine active monitor based on pet's center position
+        # Determine active monitor based on pet's center position. The floor and
+        # ceiling are per-monitor (each display has its own taskbar / height),
+        # but the WALLS come from the full virtual desktop so the pet can walk
+        # from one monitor onto another instead of bouncing off a screen seam.
         center_pt = QPoint(int(x + w / 2), int(y + h / 2))
         screen_geom = cls.get_active_screen_geometry(center_pt)
-        
+        desktop_geom = cls.get_virtual_desktop_geometry()
+
         # QRect.right()/bottom() are left+width-1 / top+height-1 (Qt legacy),
         # so compute edges from width/height to avoid a 1px sink into the
         # taskbar / right wall.
-        left_wall = screen_geom.left()
-        right_wall = screen_geom.left() + screen_geom.width() - w
+        left_wall = desktop_geom.left()
+        right_wall = desktop_geom.left() + desktop_geom.width() - w
         top_wall = screen_geom.top()
         floor_y = screen_geom.top() + screen_geom.height() - h  # Top of taskbar
         

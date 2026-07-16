@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygon
+from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPolygon, QGuiApplication
 from src.config import Config
 from src.constants import MAX_BUBBLE_WIDTH, READING_TIME_PER_WORD_MS
 from src.utils.logger import get_logger
@@ -49,9 +49,12 @@ class SpeechBubble(QWidget):
 
         # Font metrics are reused across paints/chunks instead of being
         # constructed per call
-        self.font = QFont("Segoe UI", 9)
+        # NOT `self.font` — QWidget already defines a font() method, and
+        # assigning over it shadows the Qt API (self.font() would raise
+        # "QFont is not callable").
+        self._font = QFont("Segoe UI", 9)
         from PyQt6.QtGui import QFontMetrics
-        self.font_metrics = QFontMetrics(self.font)
+        self._font_metrics = QFontMetrics(self._font)
         
         # Timers
         self.typewriter_timer = QTimer(self)
@@ -64,11 +67,14 @@ class SpeechBubble(QWidget):
         self.dismiss_timer.setSingleShot(True)
         self.dismiss_timer.timeout.connect(self.start_fade)
 
-    def show_text(self, text: str, pet_pos: QPoint, pet_size: int, placeholder: bool = False):
+    def show_text(self, text: str, pet_pos: QPoint, pet_size: int, placeholder: bool = False,
+                  typing_interval_ms: float | None = None):
         """Prepares and displays the bubble next to the pet.
 
         placeholder=True marks transient status text ("Thinking...") that the
-        first streamed chunk should replace entirely."""
+        first streamed chunk should replace entirely.
+        typing_interval_ms overrides the user's typing speed — used to pace the
+        typewriter against real speech audio (see show_text_timed)."""
         if not text:
             self.hide()
             return
@@ -91,8 +97,21 @@ class SpeechBubble(QWidget):
         self.position_bubble(pet_pos, pet_size)
         self.show()
         
-        # Start typewriter animation (speed is a persisted user setting)
-        self.typewriter_timer.start(Config.SPEECH_TYPING_SPEED_MS)
+        # Start typewriter animation (speed is a persisted user setting unless
+        # the caller is pacing it against audio)
+        interval = typing_interval_ms if typing_interval_ms else Config.SPEECH_TYPING_SPEED_MS
+        self.typewriter_timer.start(max(1, int(interval)))
+
+    def show_text_timed(self, text: str, duration_sec: float, pet_pos: QPoint, pet_size: int):
+        """Types `text` so it finishes exactly when `duration_sec` of speech does.
+
+        The fixed SPEECH_TYPING_SPEED_MS (~25 chars/s) outruns real speech
+        (~16 chars/s), so text raced ahead of the voice. Pacing off the audio's
+        true duration keeps the words on screen in step with the words heard."""
+        if not text:
+            return
+        interval = (duration_sec * 1000.0 / len(text)) if duration_sec > 0 else None
+        self.show_text(text, pet_pos, pet_size, typing_interval_ms=interval)
 
     def append_chunk(self, chunk: str, pet_pos: QPoint, pet_size: int):
         """Streams a text chunk (real-time stream update)."""
@@ -130,8 +149,11 @@ class SpeechBubble(QWidget):
         bubble_x = pet_pos.x() + (pet_size - self.width()) // 2
         bubble_y = pet_pos.y() - self.height() - 5  # 5px offset above pet
         
-        # Clamps to avoid placing bubble off screen
-        screen = self.screen()
+        # Clamp to the screen the PET is on. Using self.screen() clamped the
+        # bubble to whichever display the bubble widget currently occupied
+        # (normally the primary), so on a multi-monitor setup the bubble was
+        # yanked back to the laptop while the pet sat on the extended monitor.
+        screen = QGuiApplication.screenAt(pet_pos) or self.screen()
         if screen:
             screen_rect = screen.availableGeometry()
             if bubble_x < screen_rect.left() + 10:
@@ -147,7 +169,7 @@ class SpeechBubble(QWidget):
 
     def _calculate_dimensions(self):
         """Measures font layouts to auto-size the speech bubble boundaries."""
-        fm = self.font_metrics
+        fm = self._font_metrics
 
         # Wrap bounds
         max_text_width = MAX_BUBBLE_WIDTH - (self.padding * 2)
@@ -236,7 +258,7 @@ class SpeechBubble(QWidget):
         
         # 3. Paint typewriter text
         painter.setPen(QPen(QColor(25, 25, 25, 255)))
-        painter.setFont(self.font)
+        painter.setFont(self._font)
         
         text_draw_rect = QRect(
             self.bubble_rect.left() + self.padding,
