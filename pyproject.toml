@@ -32,6 +32,16 @@ voice = [
 extraPaths = ["."]
 include = ["src", "tests", "tools"]
 
+[tool.pyrefly]
+search-path = ["."]
+
+[tool.pyrefly.errors]
+# PyQt6's generated stubs name every event-handler parameter `a0`, while Qt's
+# own docs (and every human) call it `event`. The name is positional-only in
+# practice, so overriding with a readable name is correct — satisfying the stub
+# would mean renaming paintEvent(event) -> paintEvent(a0) across every widget.
+bad-override-param-name = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "strict"

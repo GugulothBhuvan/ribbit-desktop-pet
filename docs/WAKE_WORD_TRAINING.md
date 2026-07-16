@@ -28,6 +28,7 @@ In the notebook's config cell set:
   defaults for a first pass.
 
 Then **Runtime → Run all**. The notebook:
+
 1. synthesizes thousands of spoken samples of "hey pet" with a TTS engine,
 2. mixes in background noise / negative speech so it doesn't false-trigger,
 3. trains the model, and
@@ -62,7 +63,7 @@ pip install -e .[voice]
 
 Restart the pet. You should see:
 
-```
+```text
 [WakeWord]: Wake word active: say the 'hey_pet' phrase to talk.
 ```
 

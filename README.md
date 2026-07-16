@@ -36,12 +36,16 @@ Desktop Pet AI bridges the gap between static, repetitive desktop toys and heavy
 ## 🛠️ Core Features
 
 - **Frameless Transparent UI:** High-DPI responsive window that supports multi-monitor clipping and available work areas (excluding the system taskbar).
+- **True Multi-Monitor Roaming:** The pet walks freely across the whole virtual desktop, while gravity still resolves against *each* monitor's own taskbar. Speech bubbles and screen capture follow it to whichever display it's on.
 - **60Hz Physics Engine:** Gravity, friction, terminal velocity, dragging, and throwing momentum.
 - **Sprite Animation Machine:** Slices 6-row × 10-column sheets (60 frames total) dynamically, using an LRU pixmap scaling cache to keep memory usage under control.
-- **Conversational AI (Gemini 2.5 Flash / Krutrim):** Asynchronous streaming dialogue output mapped directly to custom speech bubbles.
+- **Configurable Persona:** The character (name, species, tone, quirks) lives in `.env` (`PET_NAME` / `PET_PERSONA`), not in code. Ships as **Ribbit** — a lazy-but-loyal buddy with sarcastic Indian-English humour who won't stop nagging you about your career.
+- **Conversational AI (Krutrim / Gemini 2.5 Flash):** Asynchronous streaming dialogue with **two reply modes** — terse one-liners for unprompted ambient asides, and real 2–4 sentence back-and-forth when you actually talk to it.
+- **Hands-Free Conversation:** Press the hotkey **once**, then just talk. On-device Silero VAD detects when you stop speaking, the pet replies, and the mic reopens for your next turn — no press-to-stop, no clicking per turn.
+- **Spoken Replies (Sarvam Bulbul / Deepgram Aura):** The pet talks back in a genuine Indian-English voice, with the speech bubble typed **in lockstep with the audio** (paced from the clip's real duration, not a fixed speed).
 - **Local Episodic Memory:** SQLite-backed persistent database that stores conversation logs, user profiles, reminders, and mascot preferences.
 - **Interactive Controls:** Drag-and-throw kinematics, double-click jumps, head-tracking hover effects, and a custom context menu (scale adjustment, character theme selection, mute, Pomodoro timers, and database pruning).
-- **Push-to-Talk Voice (Deepgram Nova-2):** On-demand microphone recording and transcription.
+- **Voice Input (Deepgram Nova-2):** Push-to-talk or an opt-in, fully on-device wake word.
 
 ---
 
@@ -50,42 +54,52 @@ Desktop Pet AI bridges the gap between static, repetitive desktop toys and heavy
 ```text
 desktop-pet/
 ├── assets/
-│   └── sprites/
-│       └── default/          # 10x6 custom frame spritesheets & metadata.json
+│   ├── sprites/
+│   │   └── default/          # 10x6 custom frame spritesheets & metadata.json
+│   └── wake/                 # Custom-trained wake-word models (.onnx)
 ├── src/
 │   ├── main.py               # Application Entry Point
 │   ├── config.py             # Type-safe global config & validation
-│   ├── constants.py          # Common states and enum types
+│   ├── constants.py          # Common states, enums & default persona
+│   ├── event_bus.py          # Decoupled Event Broker (thread-aware pub/sub)
 │   ├── core/
-│   │   ├── app.py            # Central thread coordinator & startup
-│   │   ├── event_bus.py      # Decoupled Event Broker (pub/sub engine)
+│   │   ├── composition.py    # Composition root: builds the whole object graph
+│   │   ├── application.py    # Async worker loop host
+│   │   ├── conversation.py   # Hands-free VAD turn-taking loop
+│   │   ├── tts.py            # Spoken replies: synthesis + playback
+│   │   ├── audio_recorder.py # PyAudio recorder (push-to-talk path)
 │   │   └── scheduler.py      # AI Invocation Scheduler & Throttling
 │   ├── observer/
 │   │   ├── win32_hook.py     # Low-level Windows hooks (WinEvents, idle timers)
+│   │   ├── hotkey.py         # Global talk hotkey (RegisterHotKey)
+│   │   ├── wake_word.py      # On-device wake word (openWakeWord)
 │   │   └── telemetry.py      # Active usage stats tracking engine
 │   ├── ai/
 │   │   ├── orchestrator.py   # Context builder & LLM orchestrator
 │   │   ├── context_engine.py # Aggregates active process details, battery, etc.
-│   │   ├── memory.py         # Long term storage controller & recall
+│   │   ├── prompts.py        # Persona + mode-aware system prompt builder
 │   │   ├── vision.py         # On-demand screenshot compressor
-│   │   ├── voice.py          # PyAudio recorder & STT transcriptor
-│   │   └── providers/        # LLM Clients (Krutrim, Gemini, etc.)
+│   │   └── providers/        # LLM, STT & TTS clients (Krutrim, Gemini, Deepgram, Sarvam)
 │   ├── physics/
 │   │   ├── gravity.py        # Kinematics simulator
 │   │   ├── collision.py      # Desktop bounds & taskbar offset resolver
 │   │   └── movement.py       # Wander, walk, jump, fall physics
+│   ├── animation/
+│   │   ├── state_machine.py  # Mascot animation state machine
+│   │   └── sprite_loader.py  # Sprite slicing & LRU pixmap cache
 │   ├── ui/
 │   │   ├── window.py         # Transparent, frameless window manager
 │   │   ├── renderer.py       # Painting & texture transformation
-│   │   ├── animator.py       # Mascot animation state machine
-│   │   ├── sprites.py        # Sprite loading & LRU memory cache
-│   │   └── notifications.py  # Speech bubble & custom overlays
+│   │   ├── speech_bubble.py  # Speech bubble (typewriter, audio-paced)
+│   │   └── context_menu.py   # Right-click menu & preferences
 │   └── storage/
 │       ├── db.py             # Asynchronous SQLite connector
 │       └── repository.py     # Clean repository layer for DB tables
-├── tests/                    # Unit testing suite
+├── docs/                     # Decisions log & wake-word training guide
+├── tests/                    # Unit + integration test suite
+├── tools/                    # soak_monitor.py (CPU/RAM budget measurement)
 ├── .env.example              # Sample environment variables config
-├── requirements.txt          # Python dependencies (PyQt6, pyaudio, httpx, aiosqlite)
+├── pyproject.toml            # Dependencies, extras ([voice]) & tooling config
 └── README.md                 # Project documentation
 ```
 
@@ -156,9 +170,10 @@ stateDiagram-v2
     Crouch --> Idle : Landing recovery finished
     Idle --> Sleep : System idle time > 5 minutes
     Sleep --> Idle : System activity or window click
-    Idle --> Listen : Spacebar PTT pressed
-    Listen --> Think : Spacebar PTT released
-    Think --> Speak : Stream tokens received from provider
+    Idle --> Listen : Talk hotkey / wake word
+    Listen --> Think : VAD detects end of your turn
+    Think --> Speak : Speech audio starts playing
+    Speak --> Listen : Reply finished, mic reopens (conversation mode)
     Speak --> Idle : Speech bubble dismiss / timeout
 ```
 
@@ -275,6 +290,28 @@ CREATE TABLE IF NOT EXISTS reminders (
 - **Headers:** `Authorization: Token <DEEPGRAM_API_KEY>`, `Content-Type: audio/wav`
 - **Format:** Mono 16kHz PCM raw `.wav` byte streams.
 
+### 3. Text-to-Speech (Sarvam Bulbul — default, or Deepgram Aura)
+
+Providers implement a common contract (`src/ai/providers/tts_base.py`) returning an
+`AudioClip` that carries its **own** sample rate, so playback never assumes one
+provider's format and the bubble can pace typing off the clip's true duration.
+
+| | **Sarvam (default)** | **Deepgram Aura** |
+| :--- | :--- | :--- |
+| Endpoint | `https://api.sarvam.ai/text-to-speech` | `https://api.deepgram.com/v1/speak` |
+| Auth header | `api-subscription-key` | `Authorization: Token` |
+| Returns | base64 **WAV** (unwrapped to PCM) | raw **linear16** PCM |
+| Voice | genuine Indian-English | US-accented |
+| Cost | ₹15 / 10K chars (`bulbul:v2`) | per-character |
+
+> [!NOTE]
+> `bulbul:v1` is **retired** — the API accepts only `bulbul:v2` / `v3` / `v3-beta`, and
+> each model has its **own** speaker roster (`karun` works on v2 but not v3). `v3` costs
+> 2× v2. Verified against the live API on 2026-07-17.
+
+If `TTS_PROVIDER=sarvam` but `SARVAM_API_KEY` is unset, the pet falls back to Deepgram
+rather than going mute, and switches to Sarvam automatically once the key exists.
+
 ---
 
 ## 📊 Performance Budgets
@@ -345,11 +382,17 @@ To keep the application ambient and prevent it from competing with active compil
 5. Edit `.env` to configure your API keys:
    - `KRUTRIM_API_KEY` (default LLM provider; default model `gemma-4-E4B-it` — supports vision)
    - `GEMINI_API_KEY` (alternative provider, `LLM_PROVIDER=gemini`)
-   - `DEEPGRAM_API_KEY` (Audio ASR transcription service)
+   - `DEEPGRAM_API_KEY` (speech-to-text; also the fallback TTS voice)
+   - `SARVAM_API_KEY` (spoken replies in an Indian-English voice — the default `TTS_PROVIDER`)
 
    Optional settings:
+   - `PET_NAME` / `PET_PERSONA` — make the character your own; no code change needed.
    - `WATCH_PROJECT_DIR` — absolute path to *your* project; enables the pet's git-status and pytest commentary. Leave unset to disable those probes entirely.
    - `AMBIENT_AI_COOLDOWN_SEC` — minimum seconds between ambient AI invocations (default `20`).
+   - `TTS_ENABLED` / `TTS_PROVIDER` / `SARVAM_TTS_SPEAKER` — spoken replies (see [API contracts](#-api-integrations--contracts)).
+   - `CONVERSATION_MODE` — hands-free turn-taking (default on); `CONVERSATION_ENDPOINT_MS` tunes how long a pause ends your turn.
+
+   See [.env.example](./.env.example) for the full annotated list.
 
 ### Running the App
 
@@ -369,10 +412,24 @@ Only one instance can run at a time (a named mutex guards the shared database).
 | **Double-click** | Wave or a full crouch→launch→landing jump |
 | **Drag & release** | Throw with momentum; gravity takes over |
 | **Right-click** | Menu: mascot, AI model, scale, typing speed, Calm Mode, reminders, Pomodoro, mute |
-| **`Ctrl+Space`** (global) | Push-to-talk voice input (Deepgram); configurable via `PTT_HOTKEY` |
-| **Wake word** (opt-in) | Say "Hey Jarvis" (default) for hands-free voice — see below |
+| **`Ctrl+Space`** (global) | Start/end a hands-free conversation; configurable via `PTT_HOTKEY` |
+| **Wake word** (opt-in) | Say "Hey Jarvis" (default) to talk without touching the keyboard — see below |
 
-> **Voice options.** Push-to-talk (`Ctrl+Space`) works out of the box. For hands-free, set `WAKE_WORD_ENABLED=1` and install the optional local wake-word engine with `pip install -e .[voice]`. It runs **fully on-device** (openWakeWord) — the mic is processed locally and audio only leaves your machine after the wake phrase triggers a recording. Change the phrase with `WAKE_WORD_MODEL` (openWakeWord built-ins: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`). Want your **own** phrase like "Hey Pet"? Train a custom model — see [docs/WAKE_WORD_TRAINING.md](docs/WAKE_WORD_TRAINING.md) — drop the `.onnx` in `assets/wake/`, and set `WAKE_WORD_MODEL=assets/wake/hey_pet.onnx`.
+#### Talking to it
+
+Press **`Ctrl+Space` once** and just talk — you don't press anything to stop. Silero VAD
+(on-device) detects the pause that ends your turn, the pet replies in text *and* voice, then
+the mic reopens for your next turn. The session ends when you press the hotkey again or stay
+quiet past `CONVERSATION_IDLE_TIMEOUT_SEC`.
+
+The mic is deliberately **closed while the pet is speaking**, so it can never record its own
+voice back through your speakers. That makes it half-duplex: let it finish before you reply.
+
+Tuning (all in `.env`): it cuts you off when you pause to think → raise `CONVERSATION_ENDPOINT_MS`;
+it mishears noise as speech → raise `CONVERSATION_VAD_THRESHOLD`. Set `CONVERSATION_MODE=0` for
+the old press-to-start / press-to-stop recording.
+
+> **Wake word.** For fully hands-free, set `WAKE_WORD_ENABLED=1` and install the optional engine with `pip install -e .[voice]`. It runs **fully on-device** (openWakeWord) — the mic is processed locally and audio only leaves your machine after the wake phrase triggers a recording. It's **off by default** so nothing gets a hot mic without you choosing it. Change the phrase with `WAKE_WORD_MODEL` (built-ins: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`). Want your **own** phrase? Train a custom model — see [docs/WAKE_WORD_TRAINING.md](docs/WAKE_WORD_TRAINING.md) — drop the `.onnx` in `assets/wake/`, and set `WAKE_WORD_MODEL=assets/wake/hey_pet.onnx` (the detection key is the filename minus its extension).
 
 ### Running Tests
 
