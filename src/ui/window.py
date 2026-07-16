@@ -575,10 +575,14 @@ class PetWindow(QWidget):
             if not screen:
                 raise RuntimeError("No monitor found to capture.")
 
-            # Grab only this monitor's region of the virtual desktop.
-            geo = screen.geometry()
-            image = screen.grabWindow(0, geo.x(), geo.y(),
-                                      geo.width(), geo.height()).toImage()
+            # grabWindow(0) grabs the whole of THIS QScreen. Do NOT pass the
+            # screen's geometry as x/y: with window=0 Qt already offsets by the
+            # screen's topLeft, so passing it again double-offsets and captures
+            # empty space off the desktop edge — a blank grab on every monitor
+            # except the primary one (which is at 0,0 and so masked the bug).
+            image = screen.grabWindow(0).toImage()
+            if image.isNull() or image.width() == 0:
+                raise RuntimeError(f"Grab of screen '{screen.name()}' returned no image.")
             logger.info(f"Screen captured from '{screen.name()}': "
                         f"{image.width()}x{image.height()}")
 
