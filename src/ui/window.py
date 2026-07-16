@@ -1,8 +1,8 @@
 import time
 import random
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QElapsedTimer
-from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QElapsedTimer
+from PyQt6.QtGui import QPainter, QMouseEvent, QEnterEvent, QGuiApplication
 from src.config import Config
 from src.constants import (
     PetState, FRAME_INTERVAL_MS, CLICK_DRAG_THRESHOLD_PX, SINGLE_CLICK_DELAY_MS,
@@ -11,6 +11,7 @@ from src.constants import (
 )
 from src.event_bus import EventBus, EventType
 from src.physics.movement import MovementController
+from src.physics.collision import CollisionResolver
 from src.animation.sprite_loader import SpriteLoader
 from src.ui.renderer import SpriteRenderer
 from src.ui.speech_bubble import SpeechBubble
@@ -145,14 +146,26 @@ class PetWindow(QWidget):
         self.setFixedSize(self.pet_width, self.pet_height)
         self.setMouseTracking(True)
 
+    def _screen_rect(self) -> QRect:
+        """Work area of the screen the pet is on.
+
+        QWidget.screen() is genuinely optional — it can return None while the
+        widget isn't yet mapped, or if the monitor the pet is standing on gets
+        unplugged. Fall back to the primary screen, then to the virtual desktop,
+        rather than raising AttributeError mid-physics-tick."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return CollisionResolver.get_virtual_desktop_geometry()
+        return screen.availableGeometry()
+
     def _floor_y(self) -> int:
         """Top-of-taskbar Y for this window's screen (consistent with CollisionResolver)."""
-        rect = self.screen().availableGeometry()
+        rect = self._screen_rect()
         return rect.top() + rect.height() - self.pet_height
 
     def _initial_spawn_position(self):
         # Spawn pet centered at bottom of display floor
-        screen_rect = self.screen().availableGeometry()
+        screen_rect = self._screen_rect()
         spawn_x = screen_rect.left() + (screen_rect.width() - self.pet_width) // 2
         spawn_y = self._floor_y()
         self.physics.x = float(spawn_x)
@@ -324,8 +337,10 @@ class PetWindow(QWidget):
             wav_path = self.audio_recorder.stop_recording()
             self.event_bus.publish(EventType.VOICE_RECORD_STOPPED, {"wav_path": wav_path})
 
-    def enterEvent(self, event: QEnterEvent):
+    def enterEvent(self, event: QEnterEvent | None):
         """Mouse hover: pause wandering, turn head toward cursor."""
+        if event is None:  # Qt's signature is nullable; position() would crash
+            return
         if self.renderer.current_state in [PetState.IDLE, PetState.WALK]:
             self._pre_hover_state = self.renderer.current_state
             # Temporarily pause walk behavior
@@ -580,7 +595,9 @@ class PetWindow(QWidget):
             # screen's topLeft, so passing it again double-offsets and captures
             # empty space off the desktop edge — a blank grab on every monitor
             # except the primary one (which is at 0,0 and so masked the bug).
-            image = screen.grabWindow(0).toImage()
+            # 0 is Qt's documented "grab the entire screen" window id; PyQt6's
+            # stub types the parameter as voidptr and can't express that.
+            image = screen.grabWindow(0).toImage()  # pyrefly: ignore[bad-argument-type]
             if image.isNull() or image.width() == 0:
                 raise RuntimeError(f"Grab of screen '{screen.name()}' returned no image.")
             logger.info(f"Screen captured from '{screen.name()}': "
