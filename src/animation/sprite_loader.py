@@ -25,6 +25,10 @@ class SpriteLoader:
         
         self.metadata: dict = {}
         self.sheet_pixmap: QPixmap = None
+        # Per-mascot base scale: lets a sheet with large native cells (e.g. Modi
+        # at 248x470) render at a sensible on-screen size without the user having
+        # to shrink it every time. Folded into the effective scale below.
+        self.base_scale = 1.0
         self.scale_factor = Config.ANIMATION_SCALE
         
         # Cache for animations: { anim_name: [QPixmap, ...] }
@@ -60,6 +64,8 @@ class SpriteLoader:
             if os.path.exists(self.metadata_path):
                 with open(self.metadata_path, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
+                self.base_scale = float(self.metadata.get("base_scale", 1.0))
+                self.scale_factor = Config.ANIMATION_SCALE * self.base_scale
                 logger.info("Sprite sheet metadata loaded successfully.")
             else:
                 logger.error(f"Metadata file not found: {self.metadata_path}")
@@ -80,10 +86,14 @@ class SpriteLoader:
             logger.error(f"Error loading sprite sheet image: {e}")
 
     def set_scale(self, scale: float):
-        """Update animation scale factor and clear cache to redraw at new resolution."""
-        if self.scale_factor != scale:
-            logger.info(f"Updating animation scale factor to {scale}")
-            self.scale_factor = scale
+        """Update animation scale factor and clear cache to redraw at new resolution.
+
+        `scale` is the user-facing factor; the mascot's base_scale is folded in
+        so the two stay consistent with the frame_width/height the window sizes to."""
+        new_factor = scale * self.base_scale
+        if self.scale_factor != new_factor:
+            logger.info(f"Updating animation scale factor to {new_factor} (user {scale} x base {self.base_scale})")
+            self.scale_factor = new_factor
             self._animation_cache.clear()
 
     def touch(self, animation_name: str):
@@ -184,14 +194,15 @@ class SpriteLoader:
 
     @property
     def frame_width(self) -> int:
-        """Exposes the configured base frame width."""
+        """Base frame width the window sizes to, after the mascot's base_scale.
+        The window then multiplies by the user scale, matching scale_factor."""
         if not self.metadata:
             return 128
-        return self.metadata.get("frame_width", 128)
+        return int(self.metadata.get("frame_width", 128) * self.base_scale)
 
     @property
     def frame_height(self) -> int:
-        """Exposes the configured base frame height."""
+        """Base frame height the window sizes to, after the mascot's base_scale."""
         if not self.metadata:
             return 128
-        return self.metadata.get("frame_height", 128)
+        return int(self.metadata.get("frame_height", 128) * self.base_scale)

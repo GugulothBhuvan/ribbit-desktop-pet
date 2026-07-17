@@ -210,6 +210,18 @@ To reference how coordinates map to animations, here is the visual frame map:
 
 All framing configurations, FPS values, loop rules, and frame-specific durations are defined dynamically in [metadata.json](./assets/sprites/default/metadata.json).
 
+#### Adding a mascot pack
+
+Drop a folder under `assets/sprites/<name>/` containing a `spritesheet.png` and a
+`metadata.json`; it's **auto-discovered** and appears in the right-click **Change
+Mascot** menu (no code change). The metadata maps each engine state
+(`idle`, `walk`, `wave`, `talk`, `think`, `listen`, `sleep`, `sit`, `dragged`,
+`crouch`, `launch`, `fall`, `landing`) to frame rectangles on the sheet; a state
+you omit falls back to `idle`. An optional top-level `base_scale` renders a sheet
+with large native cells at a sensible on-screen size — e.g. the bundled **Modi**
+pack ([assets/sprites/modi/](./assets/sprites/modi/)) has 248×470 cells and sets
+`base_scale: 0.40` so it stands ~188px tall, matching the default pet.
+
 ---
 
 ## 🗄️ Database Schema
