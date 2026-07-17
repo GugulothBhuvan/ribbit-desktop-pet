@@ -45,16 +45,20 @@ def test_modi_covers_every_engine_state():
 
 
 def test_modi_idle_is_the_jhola_sequence():
-    """Idle = chai -> sling the jhola -> shuffle off. Frame index 8 must be the
-    first sling_bag frame, since that's what triggers the 'Jhola leke chal pada'
-    bubble in the window's animation tick."""
+    """Idle = chai -> sling the jhola. Frame index 8 must be the first sling_bag
+    frame, since that's what triggers the 'Jhola leke chal pada' bubble.
+
+    Idle must NOT contain walk-bag frames: the IDLE state is stationary, so a
+    walk cycle there moonwalks (legs move, window doesn't) — which reads as the
+    pet being unable to roam. Walk-with-bag belongs to the WALK state only."""
     meta = _modi_meta()
     mp = _modi_map()
     idle = meta["animations"]["idle"]["frames"]
-    assert len(idle) == 24  # 8 tea + 8 sling + 8 walk-bag
+    assert len(idle) == 16  # 8 tea + 8 sling
     assert idle[0]["y"] == mp["animations"]["drink_tea"]["frames"][0]["y"]
     assert idle[8]["y"] == mp["animations"]["sling_bag"]["frames"][0]["y"]
-    assert idle[16]["y"] == mp["animations"]["walk_bag"]["frames"][0]["y"]
+    walk_bag_y = mp["animations"]["walk_bag"]["frames"][0]["y"]
+    assert all(f["y"] != walk_bag_y for f in idle), "idle must not include walk-bag (moonwalk)"
 
 
 def test_modi_walk_carries_the_jhola():

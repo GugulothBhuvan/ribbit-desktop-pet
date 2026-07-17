@@ -3,7 +3,7 @@
   "frame_width": 275,
   "frame_height": 470,
   "base_scale": 0.4,
-  "_source": "map; idle=tea+sling+walkbag, walk=walk_bag, wave=namaste",
+  "_source": "map; idle=tea+sling (stationary), walk=walk_bag (moves), wave=namaste",
   "animations": {
     "idle": {
       "fps": 4,
@@ -70,112 +70,56 @@
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 275,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 550,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 825,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 1100,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 1375,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 1650,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
+          "duration_ms": 150
         },
         {
           "x": 1925,
           "y": 3290,
           "w": 275,
           "h": 470,
-          "duration_ms": 140
-        },
-        {
-          "x": 0,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 275,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 550,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 825,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 1100,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 1375,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 1650,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
-        },
-        {
-          "x": 1925,
-          "y": 3760,
-          "w": 275,
-          "h": 470,
-          "duration_ms": 110
+          "duration_ms": 150
         }
       ]
     },
