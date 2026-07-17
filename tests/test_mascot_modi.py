@@ -20,6 +20,11 @@ def _modi_meta():
         return json.load(f)
 
 
+def _modi_map():
+    with open(os.path.join(MODI_DIR, "mascot_spritesheet_map.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
 # Every state the state machine can drive the pet into.
 REQUIRED_STATES = {
     PetState.IDLE, PetState.WALK, PetState.WAVE, PetState.TALK, PetState.THINK,
@@ -40,10 +45,12 @@ def test_modi_covers_every_engine_state():
 
 
 def test_modi_frames_are_in_bounds():
-    """Every frame rect must lie inside the 1984x4230 sheet — an out-of-bounds
-    crop renders blank, exactly the failure mode we hit with screen capture."""
+    """Every frame rect must lie inside the sheet — an out-of-bounds crop renders
+    blank, exactly the failure mode we hit with screen capture. Sheet size is
+    read from the map so this survives a re-export at different dimensions."""
     meta = _modi_meta()
-    sheet_w, sheet_h = 1984, 4230
+    grid = _modi_map()["grid"]
+    sheet_w, sheet_h = grid["sheet_width"], grid["sheet_height"]
     for name, anim in meta["animations"].items():
         for fr in anim["frames"]:
             assert fr["x"] + fr["w"] <= sheet_w, f"{name} frame exceeds sheet width"
@@ -61,9 +68,10 @@ def test_base_scale_shrinks_reported_frame_size(qapp, monkeypatch):
     loader = SpriteLoader()
 
     assert loader.base_scale == pytest.approx(0.40)
-    # 248 x 470 native cells -> ~99 x 188 after base_scale
-    assert loader.frame_width == int(248 * 0.40)
-    assert loader.frame_height == int(470 * 0.40)
+    # native cells (from the map) shrink by base_scale
+    grid = _modi_map()["grid"]
+    assert loader.frame_width == int(grid["cell_width"] * 0.40)
+    assert loader.frame_height == int(grid["cell_height"] * 0.40)
     # Rendered frame matches the reported window size (scale_factor == base here)
     frames = loader.get_animation_frames("idle")
     assert frames and frames[0].height() == loader.frame_height
