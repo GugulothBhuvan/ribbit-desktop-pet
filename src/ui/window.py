@@ -12,6 +12,7 @@ from src.constants import (
 from src.event_bus import EventBus, EventType
 from src.physics.movement import MovementController
 from src.physics.collision import CollisionResolver
+from src.ai.persona import get_active_persona
 from src.animation.sprite_loader import SpriteLoader
 from src.ui.renderer import SpriteRenderer
 from src.ui.speech_bubble import SpeechBubble
@@ -50,6 +51,8 @@ class PetWindow(QWidget):
         EventType.SPEECH_PLAYBACK_STARTED,
         EventType.SPEECH_PLAYBACK_FINISHED,
         EventType.PTT_TOGGLED,
+        EventType.APPLICATION_STARTED,
+        EventType.USER_IDLE,
     ]
 
     def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader,
@@ -426,6 +429,14 @@ class PetWindow(QWidget):
         if self.renderer.current_state == PetState.TALK:
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
 
+    def _greet(self):
+        """Greeting gesture (WAVE — a namaste for Modi) plus the mascot's greeting
+        line (e.g. 'Mitroonn....'). Mascots without a greeting line just wave."""
+        self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WAVE})
+        line = get_active_persona().greeting
+        if line:
+            self.display_speech_bubble(line)
+
     def _trigger_interaction_loop(self):
         """Triggers a witty, developer-themed AI query to display inside bubble."""
         prompts = [
@@ -510,9 +521,23 @@ class PetWindow(QWidget):
             self._toggle_ptt()
 
         elif event_type == EventType.PET_DOUBLE_CLICKED:
-            # Random wave or a real jump (crouch -> launch -> fall -> landing)
-            act = random.choice([PetState.WAVE, PetState.CROUCH])
-            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": act})
+            # Random greeting or a real jump (crouch -> launch -> fall -> landing)
+            if random.choice([True, False]):
+                self._greet()
+            else:
+                self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.CROUCH})
+
+        elif event_type == EventType.APPLICATION_STARTED:
+            # First hello when the pet appears — only mascots with a greeting line
+            # (e.g. Modi's namaste + "Mitroonn....") greet on launch.
+            if get_active_persona().greeting:
+                self._greet()
+
+        elif event_type == EventType.USER_IDLE:
+            # Cursor/keyboard untouched for a while — the mascot's idle quip.
+            quip = get_active_persona().idle_quip
+            if quip:
+                self._display_ambient_bubble(quip)
 
         elif event_type == EventType.BATTERY_WARNING:
             percent = data.get("percent", 20)

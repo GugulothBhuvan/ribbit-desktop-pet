@@ -13,12 +13,14 @@ Unavailable telemetry is OMITTED rather than rendered as noise — the LLM
 previously received lines like "Battery level: -1%" and "Git status: unknown".
 """
 from typing import Dict, Any
-from src.config import Config
+from src.ai.persona import get_active_persona
 
 
 def _persona_header() -> str:
-    """The character the pet plays, assembled from config."""
-    return f"Your name is {Config.PET_NAME}.\n\n{Config.PET_PERSONA}"
+    """The character the pet plays — follows the selected mascot's persona,
+    falling back to the global .env persona."""
+    persona = get_active_persona()
+    return f"Your name is {persona.name}.\n\n{persona.persona}"
 
 
 AMBIENT_RULES = """RESPONSE RULES (you spoke up on your own — keep it to a quick aside):

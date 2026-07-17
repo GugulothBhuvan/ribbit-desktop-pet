@@ -3,7 +3,7 @@
   "frame_width": 275,
   "frame_height": 470,
   "base_scale": 0.4,
-  "_source": "mascot_spritesheet_map.json (9 rows x 8 frames)",
+  "_source": "mascot_spritesheet_map.json; WAVE state = namaste row",
   "animations": {
     "idle": {
       "fps": 4,
@@ -130,64 +130,64 @@
       ]
     },
     "wave": {
-      "fps": 12,
+      "fps": 10,
       "loop": false,
       "frames": [
         {
           "x": 0,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 275,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 550,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 825,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 1100,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 1375,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 1650,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         },
         {
           "x": 1925,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 100
         }
       ]
     },
@@ -259,56 +259,56 @@
       "frames": [
         {
           "x": 0,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 275,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 550,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 825,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 1100,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 1375,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 1650,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 1925,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
@@ -321,28 +321,28 @@
       "frames": [
         {
           "x": 0,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 275,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 550,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
         },
         {
           "x": 825,
-          "y": 470,
+          "y": 2820,
           "w": 275,
           "h": 470,
           "duration_ms": 166
@@ -382,7 +382,7 @@
       "frames": [
         {
           "x": 0,
-          "y": 0,
+          "y": 470,
           "w": 275,
           "h": 470,
           "duration_ms": 1000

@@ -44,6 +44,14 @@ def test_modi_covers_every_engine_state():
     assert not missing, f"Modi is missing states (would fall back to idle): {missing}"
 
 
+def test_modi_wave_is_the_namaste_row():
+    """Modi greets with a namaste, not a Western hand-wave — the WAVE animation
+    must come from the namaste row (this is what the greeting shows)."""
+    meta = _modi_meta()
+    namaste_y = _modi_map()["animations"]["namaste_a"]["frames"][0]["y"]
+    assert meta["animations"]["wave"]["frames"][0]["y"] == namaste_y
+
+
 def test_modi_frames_are_in_bounds():
     """Every frame rect must lie inside the sheet — an out-of-bounds crop renders
     blank, exactly the failure mode we hit with screen capture. Sheet size is
