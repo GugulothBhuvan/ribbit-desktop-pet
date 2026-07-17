@@ -3,7 +3,7 @@
   "frame_width": 275,
   "frame_height": 470,
   "base_scale": 0.4,
-  "_source": "mascot_spritesheet_map.json; WAVE state = namaste row",
+  "_source": "map; idle=tea+sling+walkbag, walk=walk_bag, wave=namaste",
   "animations": {
     "idle": {
       "fps": 4,
@@ -64,6 +64,118 @@
           "w": 275,
           "h": 470,
           "duration_ms": 250
+        },
+        {
+          "x": 0,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 275,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 550,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 825,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 1100,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 1375,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 1650,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 1925,
+          "y": 3290,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 140
+        },
+        {
+          "x": 0,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 275,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 550,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 825,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 1100,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 1375,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 1650,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
+        },
+        {
+          "x": 1925,
+          "y": 3760,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 110
         }
       ]
     },
@@ -73,59 +185,59 @@
       "frames": [
         {
           "x": 0,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 275,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 550,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 825,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 1100,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 1375,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 1650,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         },
         {
           "x": 1925,
-          "y": 1880,
+          "y": 3760,
           "w": 275,
           "h": 470,
-          "duration_ms": 83
+          "duration_ms": 80
         }
       ]
     },
@@ -192,7 +304,7 @@
       ]
     },
     "talk": {
-      "fps": 11,
+      "fps": 9,
       "loop": true,
       "frames": [
         {
@@ -200,56 +312,56 @@
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 275,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 550,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 825,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 1100,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 1375,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 1650,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         },
         {
           "x": 1925,
           "y": 1410,
           "w": 275,
           "h": 470,
-          "duration_ms": 90
+          "duration_ms": 110
         }
       ]
     },
@@ -350,7 +462,7 @@
       ]
     },
     "sleep": {
-      "fps": 2,
+      "fps": 1,
       "loop": true,
       "frames": [
         {

@@ -11,7 +11,7 @@ FRAME_INTERVAL_MS = int(1000 / TARGET_FPS)
 # gravity hit terminal velocity within 2 frames — audit m-2/m-3)
 GRAVITY = 2200.0            # px/s^2 — visible acceleration over ~0.5s falls
 TERMINAL_VELOCITY = 1300.0  # px/s
-WALK_SPEED = 110.0          # px/s horizontal wander speed
+WALK_SPEED = 140.0          # px/s horizontal wander speed
 AIR_DRAG_PER_SEC = 3.0      # fraction of horizontal velocity shed per second airborne
 GROUND_DRAG_PER_SEC = 4.0   # fraction shed per second sliding on the floor
 MIN_SLIDE_SPEED = 5.0       # px/s below which sliding stops dead
@@ -23,9 +23,11 @@ MAX_PHYSICS_DT = 0.05       # seconds; clamps dt after event-loop stalls
 PHYSICS_TIME_STEP = 1.0 / TARGET_FPS  # fallback dt when none is measured
 BOUNCE_COEFFICIENT = 0.3
 
-# Behavior & Wandering
-MIN_WANDER_TIME = 2.0  # Min seconds in walk state before idling
-MAX_WANDER_TIME = 5.0
+# Behavior & Wandering. Wander long enough to actually cross a screen: at
+# WALK_SPEED a 4-10s walk covers ~560-1400px (was ~220-550px, which read as
+# "barely walks" on a wide/multi-monitor desktop).
+MIN_WANDER_TIME = 4.0  # Min seconds in walk state before idling
+MAX_WANDER_TIME = 10.0
 MIN_IDLE_TIME = 3.0
 MAX_IDLE_TIME = 10.0
 

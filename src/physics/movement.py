@@ -151,14 +151,14 @@ class MovementController:
             return PetState.IDLE
 
         roll = random.random()
-        if roll < 0.4:  # 40% walk
+        if roll < 0.55:  # 55% walk — the pet should roam, not mostly stand
             self.walk_direction = random.choice([-1, 1])
             self.wander_timer = random.uniform(MIN_WANDER_TIME, MAX_WANDER_TIME)
             return PetState.WALK
-        if roll < 0.55:  # 15% wave
+        if roll < 0.65:  # 10% wave
             self.idle_timer = 2.0  # short delay after wave
             return PetState.WAVE
-        if roll < 0.7:  # 15% nap / sleep
+        if roll < 0.75:  # 10% nap / sleep
             self.idle_timer = random.uniform(8.0, 15.0)
             return PetState.SLEEP
         # Continue idling
