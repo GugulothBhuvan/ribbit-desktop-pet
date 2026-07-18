@@ -54,14 +54,17 @@ class StateMachine:
         logger.info(f"State transition: {self._current_state} -> {new_state}")
         self._current_state = new_state
         self._state_start_time = time.time()
-        
-        # Retrieve sprite attributes
-        fps = self.sprite_loader.get_animation_fps(new_state)
-        loop = self.sprite_loader.is_looping(new_state)
-        
+
+        # A state may render one of several free-will variants (e.g. WALK shown
+        # plain or with the jhola). fps/loop come from the chosen animation.
+        animation = self.sprite_loader.pick_animation(new_state)
+        fps = self.sprite_loader.get_animation_fps(animation)
+        loop = self.sprite_loader.is_looping(animation)
+
         # Publish event that sprite must update
         self.event_bus.publish(EventType.SPRITE_CHANGED, {
             "state": new_state,
+            "animation": animation,
             "fps": fps,
             "loop": loop
         })

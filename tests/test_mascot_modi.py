@@ -44,28 +44,46 @@ def test_modi_covers_every_engine_state():
     assert not missing, f"Modi is missing states (would fall back to idle): {missing}"
 
 
-def test_modi_idle_is_the_jhola_sequence():
-    """Idle = chai -> sling the jhola. Frame index 8 must be the first sling_bag
-    frame, since that's what triggers the 'Jhola leke chal pada' bubble.
+def test_modi_free_will_variants_declared():
+    """Modi's free-will variety: IDLE is a still stand or a chai sip; WALK is
+    plain or with the jhola. All four backing animations must exist."""
+    meta = _modi_meta()
+    variants = meta.get("state_variants", {})
+    assert variants.get("idle") == ["idle", "drink_tea"]
+    assert variants.get("walk") == ["walk", "walk_bag"]
+    for a in ("idle", "drink_tea", "walk", "walk_bag"):
+        assert a in meta["animations"], f"variant animation '{a}' missing"
 
-    Idle must NOT contain walk-bag frames: the IDLE state is stationary, so a
-    walk cycle there moonwalks (legs move, window doesn't) — which reads as the
-    pet being unable to roam. Walk-with-bag belongs to the WALK state only."""
+
+def test_modi_idle_variant_is_stationary_not_walking():
+    """The IDLE state never translates the window, so no idle variant may use a
+    walk cycle (that was the moonwalk). Stand + sip only."""
     meta = _modi_meta()
     mp = _modi_map()
-    idle = meta["animations"]["idle"]["frames"]
-    assert len(idle) == 16  # 8 tea + 8 sling
-    assert idle[0]["y"] == mp["animations"]["drink_tea"]["frames"][0]["y"]
-    assert idle[8]["y"] == mp["animations"]["sling_bag"]["frames"][0]["y"]
-    walk_bag_y = mp["animations"]["walk_bag"]["frames"][0]["y"]
-    assert all(f["y"] != walk_bag_y for f in idle), "idle must not include walk-bag (moonwalk)"
+    walk_ys = {mp["animations"]["walk"]["frames"][0]["y"],
+               mp["animations"]["walk_bag"]["frames"][0]["y"]}
+    for variant in meta["state_variants"]["idle"]:
+        ys = {f["y"] for f in meta["animations"][variant]["frames"]}
+        assert not (ys & walk_ys), f"idle variant '{variant}' uses walk frames (moonwalk)"
 
 
-def test_modi_walk_carries_the_jhola():
-    """The WALK state uses the walk-bag row, so wandering shows him with the bag."""
+def test_modi_walk_variants_map_to_plain_and_bag_rows():
     meta = _modi_meta()
     mp = _modi_map()
-    assert meta["animations"]["walk"]["frames"][0]["y"] == mp["animations"]["walk_bag"]["frames"][0]["y"]
+    assert meta["animations"]["walk"]["frames"][0]["y"] == mp["animations"]["walk"]["frames"][0]["y"]
+    assert meta["animations"]["walk_bag"]["frames"][0]["y"] == mp["animations"]["walk_bag"]["frames"][0]["y"]
+
+
+def test_pick_animation_returns_declared_variants(qapp, monkeypatch):
+    """pick_animation must only ever return a declared variant (or the state
+    name when none) — a stray name would render blank/idle-fallback."""
+    from src.config import Config
+    from src.animation.sprite_loader import SpriteLoader
+    monkeypatch.setattr(Config, "SELECTED_MASCOT", "modi")
+    loader = SpriteLoader()
+    assert {loader.pick_animation("idle") for _ in range(60)} == {"idle", "drink_tea"}
+    assert {loader.pick_animation("walk") for _ in range(60)} == {"walk", "walk_bag"}
+    assert loader.pick_animation("wave") == "wave"  # no variants -> state name
 
 
 def test_modi_wave_is_the_namaste_row():

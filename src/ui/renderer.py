@@ -22,7 +22,8 @@ class SpriteRenderer(QObject):
         super().__init__()
         self.sprite_loader = sprite_loader
 
-        self.current_state = "idle"
+        self.current_state = "idle"   # logical state (drives physics)
+        self.animation = "idle"       # animation actually rendered (may be a variant)
         self.frames: List[QPixmap] = []
         self._mirrored_frames: Optional[List[QPixmap]] = None
         self.frame_index = 0
@@ -34,16 +35,22 @@ class SpriteRenderer(QObject):
         # Load initial idle frames
         self.set_animation("idle", loop=True)
 
-    def set_animation(self, animation_name: str, loop: bool = True):
-        """Loads a new animation sequence and resets frame tracking indices."""
-        self.current_state = animation_name
-        self.frames = self.sprite_loader.get_animation_frames(animation_name)
+    def set_animation(self, state: str, loop: bool = True, animation: Optional[str] = None):
+        """Loads a new animation sequence and resets frame tracking indices.
+
+        `state` is the logical state (physics reads current_state); `animation`
+        is the sprite sequence to render, defaulting to the state name. They
+        differ only when a state renders a free-will variant (e.g. WALK shown as
+        `walk_bag`)."""
+        self.current_state = state
+        self.animation = animation or state
+        self.frames = self.sprite_loader.get_animation_frames(self.animation)
         self._mirrored_frames = None  # rebuilt lazily for the new frames
         self.frame_index = 0
         self.loop = loop
 
         if not self.frames:
-            logger.warning(f"No frames found for animation: {animation_name}")
+            logger.warning(f"No frames found for animation: {self.animation}")
 
     def set_direction(self, direction: int) -> bool:
         """Sets the facing direction (1 right, -1 left). Returns True if changed."""
@@ -60,7 +67,7 @@ class SpriteRenderer(QObject):
 
         # Keep the active animation marked as in-use so the cache purge
         # never evicts what is on screen (audit M-7)
-        self.sprite_loader.touch(self.current_state)
+        self.sprite_loader.touch(self.animation)
 
         previous_index = self.frame_index
         self.frame_index += 1

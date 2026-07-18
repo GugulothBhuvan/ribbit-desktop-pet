@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import random
 from typing import Dict, List
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QTimer
@@ -164,6 +165,19 @@ class SpriteLoader:
     def is_looping(self, animation_name: str) -> bool:
         """Determines if the animation loops."""
         return self._anim_data(animation_name).get("loop", True)
+
+    def pick_animation(self, state: str) -> str:
+        """Chooses which animation to render for a logical state.
+
+        A mascot may declare `state_variants` in metadata, e.g.
+            "state_variants": {"walk": ["walk", "walk_bag"]}
+        to give a state several interchangeable looks the pet picks between as
+        free-will variety (Modi roams sometimes plain, sometimes with his jhola).
+        Returns the state name unchanged when no variants are defined."""
+        variants = (self.metadata.get("state_variants", {}) or {}).get(state)
+        if variants:
+            return random.choice(variants)
+        return state
 
     def get_frame_duration(self, animation_name: str, frame_index: int) -> int:
         """Per-frame display duration in ms (metadata duration_ms honored;

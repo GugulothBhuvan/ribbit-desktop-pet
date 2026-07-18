@@ -410,17 +410,10 @@ class PetWindow(QWidget):
         """Advances active frame; repaints only when the frame changed."""
         if self.renderer.advance_frame():
             self.update()
-            # Modi's idle loop is chai -> sling the jhola (frame 8) -> shuffle off.
-            # Announce it when he picks up the bag, throttled so it isn't spammed
-            # every loop.
-            if (Config.SELECTED_MASCOT == "modi"
-                    and self.renderer.current_state == PetState.IDLE
-                    and self.renderer.frame_index == 8):
-                self._display_ambient_bubble("Jhola leke chal pada")
 
-        # Honor per-frame durations from metadata
+        # Honor per-frame durations of the rendered animation (may be a variant)
         interval = self.sprite_loader.get_frame_duration(
-            self.renderer.current_state, self.renderer.frame_index)
+            self.renderer.animation, self.renderer.frame_index)
         if interval != self.anim_timer.interval():
             self.anim_timer.start(interval)
 
@@ -471,8 +464,12 @@ class PetWindow(QWidget):
         if event_type == EventType.SPRITE_CHANGED:
             state = data.get("state", "idle")
             loop = data.get("loop", True)
-            self.renderer.set_animation(state, loop)
-            self._update_animation_fps(state)
+            animation = data.get("animation", state)
+            self.renderer.set_animation(state, loop, animation)
+            self._update_animation_fps(animation)
+            # Announce the jhola when Modi sets off roaming with his bag.
+            if animation == "walk_bag":
+                self._display_ambient_bubble("Jhola leke chal pada")
 
         elif event_type == EventType.LLM_REQUEST_SENT:
             # Placeholder: the first streamed chunk replaces it entirely
