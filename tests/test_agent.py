@@ -70,7 +70,20 @@ def test_open_app_launches_allowlisted(monkeypatch):
     monkeypatch.setattr(actions.subprocess, "Popen", lambda *a, **k: called.append(a[0]))
     res = actions.open_app("chrome")
     assert res.ok is True
-    assert called and "chrome" in called[0]
+    # Either a resolved exe path or the shell fallback — both reference chrome.
+    assert called and any("chrome" in str(x).lower() for x in called[0])
+
+
+def test_resolve_exe_prefers_existing_over_stale_registry(monkeypatch):
+    """A real install path must win over a stale App Paths entry (the bug: HKCU
+    chrome.exe -> a removed Chromium), and URIs fall back to the shell."""
+    monkeypatch.setattr(actions.shutil, "which", lambda *_: None)
+    monkeypatch.setattr(actions, "_KNOWN_PATHS",
+                        {"chrome": [r"C:\Real\chrome.exe", r"C:\Missing\chrome.exe"]})
+    monkeypatch.setattr(actions.os.path, "exists", lambda p: p == r"C:\Real\chrome.exe")
+    assert actions._resolve_exe("chrome") == r"C:\Real\chrome.exe"   # skips the missing one
+    assert actions._resolve_exe("ms-settings:") is None             # URI -> shell start
+    assert actions._resolve_exe("nonesuch") is None                 # unknown -> shell start
 
 
 def test_extra_apps_merged(monkeypatch):

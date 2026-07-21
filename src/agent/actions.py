@@ -8,10 +8,12 @@ Handlers return an ActionResult(ok, message); the message is what the pet says.
 subprocess / webbrowser are called at module scope so tests can monkeypatch them
 without launching anything real.
 """
+import os
+import shutil
 import subprocess
 import webbrowser
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from urllib.parse import quote_plus, urlparse
 
 from src.config import Config
@@ -70,6 +72,53 @@ def app_allowlist() -> Dict[str, str]:
     return apps
 
 
+# Fallback install locations for common apps whose launcher token may not
+# resolve on PATH or via a (sometimes stale) App Paths registry entry.
+_KNOWN_PATHS: Dict[str, list] = {
+    "chrome": [r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+               r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+               r"%LocalAppData%\Google\Chrome\Application\chrome.exe"],
+    "msedge": [r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+               r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"],
+    "firefox": [r"%ProgramFiles%\Mozilla Firefox\firefox.exe",
+                r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"],
+}
+
+
+def _resolve_exe(token: str) -> Optional[str]:
+    """Resolves a launcher token to a real .exe path, or None to fall back to
+    the shell `start`. Crucially, an App Paths entry is only used if its target
+    actually EXISTS — a stale HKCU entry (e.g. chrome.exe -> a removed Chromium
+    install) otherwise shadows the real app and `start` silently does nothing."""
+    if not token or token.endswith(":") or "://" in token:
+        return None  # a URI like ms-settings: -> let `start` handle it
+    hit = shutil.which(token) or shutil.which(token + ".exe")
+    if hit:
+        return hit
+    # Canonical install locations FIRST: for browsers these are unambiguous
+    # (Google Chrome), so a stale HKCU App Paths entry pointing at a different
+    # build (Chromium) can't shadow the app the user meant.
+    for cand in _KNOWN_PATHS.get(token, []):
+        cand = os.path.expandvars(cand)
+        if os.path.exists(cand):
+            return cand
+    try:
+        import winreg
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(
+                    hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{token}.exe") as k:
+                    val = winreg.QueryValueEx(k, "")[0]   # "" = the key's default value
+                    val = os.path.expandvars(val) if val else val
+                    if val and os.path.exists(val):
+                        return val
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def open_app(app: str) -> ActionResult:
     """Launches an allowlisted app. Names outside the allowlist are refused —
     an LLM/mishear can never spawn an arbitrary executable."""
@@ -78,10 +127,13 @@ def open_app(app: str) -> ActionResult:
     if not token:
         return ActionResult(False, f"I can't open '{app}' — it's not on my safe app list.")
     try:
-        # `start "" <token>` resolves browsers/known apps via the shell without
-        # running a free-form command string.
-        subprocess.Popen(["cmd", "/c", "start", "", token], shell=False)
-        logger.info(f"AGENT open_app: {key} -> {token}")
+        exe = _resolve_exe(token)
+        if exe:
+            subprocess.Popen([exe])                                   # real, verified path
+            logger.info(f"AGENT open_app: {key} -> {exe}")
+        else:
+            subprocess.Popen(["cmd", "/c", "start", "", token], shell=False)  # shell fallback
+            logger.info(f"AGENT open_app: {key} -> start {token}")
         return ActionResult(True, f"Opening {app}.")
     except Exception as e:
         logger.error(f"open_app failed for {key}: {e}")
