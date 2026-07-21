@@ -27,6 +27,66 @@ KNOWN_SITES = {
     "chatgpt": "chat.openai.com", "claude": "claude.ai",
 }
 
+# Named hotkeys: phrase -> (keys, risk). SAFE run immediately; RISKY confirm.
+NAMED_HOTKEYS = {
+    "copy": (["ctrl", "c"], RISK_SAFE),
+    "cut": (["ctrl", "x"], RISK_RISKY),
+    "paste": (["ctrl", "v"], RISK_RISKY),
+    "undo": (["ctrl", "z"], RISK_SAFE),
+    "redo": (["ctrl", "y"], RISK_SAFE),
+    "select all": (["ctrl", "a"], RISK_SAFE),
+    "save": (["ctrl", "s"], RISK_SAFE),
+    "find": (["ctrl", "f"], RISK_SAFE),
+    "address bar": (["ctrl", "l"], RISK_SAFE),
+    "new tab": (["ctrl", "t"], RISK_SAFE),
+    "close tab": (["ctrl", "w"], RISK_RISKY),
+    "reopen tab": (["ctrl", "shift", "t"], RISK_SAFE),
+    "switch tab": (["ctrl", "tab"], RISK_SAFE),
+    "new window": (["ctrl", "n"], RISK_SAFE),
+    "switch window": (["alt", "tab"], RISK_SAFE),
+    "close window": (["alt", "f4"], RISK_RISKY),
+    "refresh": (["f5"], RISK_SAFE),
+    "screenshot": (["win", "shift", "s"], RISK_SAFE),
+    "show desktop": (["win", "d"], RISK_SAFE),
+    "minimize": (["win", "down"], RISK_SAFE),
+    "lock screen": (["win", "l"], RISK_RISKY),
+    "enter": (["enter"], RISK_SAFE),
+    "escape": (["esc"], RISK_SAFE),
+}
+
+MEDIA_KEYS = {
+    "volume up": "volumeup", "volume down": "volumedown", "mute": "volumemute",
+    "unmute": "volumemute", "play": "playpause", "pause": "playpause",
+    "next track": "nexttrack", "previous track": "prevtrack",
+    "next song": "nexttrack", "previous song": "prevtrack",
+}
+
+# Spoken key names -> pyautogui key names.
+_KEY_WORDS = {
+    "control": "ctrl", "ctrl": "ctrl", "command": "ctrl", "cmd": "ctrl",
+    "shift": "shift", "alt": "alt", "option": "alt",
+    "windows": "win", "win": "win", "super": "win",
+    "enter": "enter", "return": "enter", "escape": "esc", "esc": "esc",
+    "tab": "tab", "space": "space", "delete": "delete", "backspace": "backspace",
+    "up": "up", "down": "down", "left": "left", "right": "right",
+    "home": "home", "end": "end", "pageup": "pageup", "pagedown": "pagedown",
+}
+
+
+def _words_to_keys(spec: str):
+    """Turns 'control shift p' / 'ctrl+c' into ['ctrl','shift','p']. Single
+    letters/digits pass through; unknown words are dropped."""
+    keys = []
+    for w in re.split(r"[\s+]+", spec.strip().lower()):
+        if not w:
+            continue
+        if w in _KEY_WORDS:
+            keys.append(_KEY_WORDS[w])
+        elif len(w) == 1 and w.isalnum():
+            keys.append(w)
+    return keys
+
+
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+[\w']+[,.]?\s+|ok\s+[\w']+[,.]?\s+)", re.I)
 _SEARCH = re.compile(r"^(?:search for|search|google|look up)\s+(.+)$", re.I)
 _YT_PREFIX = re.compile(r"^(?:search youtube for|play on youtube|youtube)\s+(.+)$", re.I)
@@ -104,6 +164,41 @@ class DesktopAgent:
                 return Action("open_app", {"app": key}, RISK_SAFE, f"launch {key}")
             return None  # "start over" etc. -> chat
 
+        # type <text> — keep the ORIGINAL case; risky (goes to the focused app).
+        m = re.match(r"^type\s+(.+)$", t, re.I)
+        if m:
+            text = m.group(1).strip()
+            return Action("type_text", {"text": text}, RISK_RISKY, f"type \"{text[:40]}\"")
+
+        # Exact-match commands only, so chat like "copy that" isn't hijacked.
+        if low in NAMED_HOTKEYS:
+            keys, risk = NAMED_HOTKEYS[low]
+            return Action("press_hotkey", {"keys": keys}, risk, low)
+
+        if low in MEDIA_KEYS:
+            return Action("media_key", {"key": MEDIA_KEYS[low]}, RISK_SAFE, low)
+
+        m = re.match(r"^scroll(?:\s+(up|down))?(?:\s+(\d+))?$", low)
+        if m:
+            direction = m.group(1) or "down"
+            amount = int(m.group(2) or 500)
+            amount = amount if direction == "up" else -amount
+            return Action("scroll", {"amount": amount}, RISK_SAFE, f"scroll {direction}")
+
+        if low in ("click", "left click"):
+            return Action("mouse_click", {"button": "left"}, RISK_RISKY, "click")
+        if low in ("double click", "double-click"):
+            return Action("mouse_click", {"double": True}, RISK_RISKY, "double-click")
+        if low in ("right click", "right-click"):
+            return Action("mouse_click", {"button": "right"}, RISK_RISKY, "right-click")
+
+        m = re.match(r"^press\s+(.+)$", low)
+        if m:
+            keys = _words_to_keys(m.group(1))
+            if keys:
+                return Action("press_hotkey", {"keys": keys}, RISK_RISKY,
+                              f"press {'+'.join(keys)}")
+
         return None
 
     def _run(self, action: Action) -> str:
@@ -117,6 +212,7 @@ class DesktopAgent:
             self._pending = None
             return "Okay, cancelled."
         if any(w in low for w in _YES):
-            action, self._pending = self._pending, None
-            return self._run(action)
+            action = self._pending
+            self._pending = None
+            return self._run(action) if action else "Nothing to confirm."
         return "Say yes to confirm, or no to cancel."

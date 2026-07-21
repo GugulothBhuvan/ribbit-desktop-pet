@@ -133,11 +133,115 @@ def web_search(query: str, engine: str = "google") -> ActionResult:
         return ActionResult(False, "I couldn't run that search.")
 
 
+# --- Phase 2: keyboard / mouse (needs the optional pyautogui backend) --------
+
+_pg = None
+_pg_tried = False
+
+
+def _backend():
+    """Lazily imports pyautogui once; returns None (and logs) if unavailable so
+    keyboard/mouse actions degrade gracefully instead of crashing."""
+    global _pg, _pg_tried
+    if not _pg_tried:
+        _pg_tried = True
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = True    # slam mouse to a corner to abort
+            pyautogui.PAUSE = 0.03
+            _pg = pyautogui
+        except Exception as e:
+            logger.warning(f"pyautogui unavailable ({e}); keyboard/mouse actions "
+                           "disabled. Install with: pip install -e .[agent]")
+    return _pg
+
+
+def press_hotkey(keys) -> ActionResult:
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Keyboard control isn't installed.")
+    if not keys:
+        return ActionResult(False, "No keys to press.")
+    try:
+        pg.hotkey(*keys)
+        logger.info(f"AGENT press_hotkey: {'+'.join(keys)}")
+        return ActionResult(True, f"Done ({'+'.join(keys)}).")
+    except Exception as e:
+        logger.error(f"press_hotkey failed {keys}: {e}")
+        return ActionResult(False, "That key combo didn't work.")
+
+
+def type_text(text: str) -> ActionResult:
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Keyboard control isn't installed.")
+    text = text or ""
+    try:
+        pg.write(text, interval=0.01)
+        logger.info(f"AGENT type_text: {len(text)} chars")
+        return ActionResult(True, "Typed it.")
+    except Exception as e:
+        logger.error(f"type_text failed: {e}")
+        return ActionResult(False, "I couldn't type that.")
+
+
+def scroll(amount: int) -> ActionResult:
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Mouse control isn't installed.")
+    try:
+        pg.scroll(int(amount))
+        logger.info(f"AGENT scroll: {amount}")
+        return ActionResult(True, f"Scrolled {'up' if amount > 0 else 'down'}.")
+    except Exception as e:
+        logger.error(f"scroll failed: {e}")
+        return ActionResult(False, "I couldn't scroll.")
+
+
+def mouse_click(button: str = "left", double: bool = False) -> ActionResult:
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Mouse control isn't installed.")
+    try:
+        if double:
+            pg.doubleClick()
+            what = "Double-clicked."
+        elif button == "right":
+            pg.rightClick()
+            what = "Right-clicked."
+        else:
+            pg.click()
+            what = "Clicked."
+        logger.info(f"AGENT mouse_click: button={button} double={double}")
+        return ActionResult(True, what)
+    except Exception as e:
+        logger.error(f"mouse_click failed: {e}")
+        return ActionResult(False, "I couldn't click.")
+
+
+def media_key(key: str) -> ActionResult:
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Media control isn't installed.")
+    try:
+        pg.press(key)
+        logger.info(f"AGENT media_key: {key}")
+        return ActionResult(True, "Done.")
+    except Exception as e:
+        logger.error(f"media_key failed {key}: {e}")
+        return ActionResult(False, "That didn't work.")
+
+
 # Dispatch table: action name -> handler. Extended in later phases.
 HANDLERS = {
     "open_app": lambda p: open_app(p.get("app", "")),
     "open_url": lambda p: open_url(p.get("url", "")),
     "web_search": lambda p: web_search(p.get("query", ""), p.get("engine", "google")),
+    "press_hotkey": lambda p: press_hotkey(p.get("keys", [])),
+    "type_text": lambda p: type_text(p.get("text", "")),
+    "scroll": lambda p: scroll(p.get("amount", -500)),
+    "mouse_click": lambda p: mouse_click(p.get("button", "left"), p.get("double", False)),
+    "media_key": lambda p: media_key(p.get("key", "")),
 }
 
 

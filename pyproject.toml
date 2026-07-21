@@ -25,6 +25,11 @@ voice = [
     "openwakeword>=0.6.0",
     "numpy>=1.24.0",
 ]
+# Optional desktop-agent keyboard/mouse control (AGENT_ENABLED=1 + Phase 2+).
+# Only needed for type/click/scroll/hotkeys; the safe launcher works without it.
+agent = [
+    "pyautogui>=0.9.54",
+]
 
 [tool.pyright]
 # Imports are `src.xxx` resolved from the repo root; without this the analyzer

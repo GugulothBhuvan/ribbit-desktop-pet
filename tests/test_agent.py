@@ -132,3 +132,79 @@ def test_kill_switch_cancels_pending(agent, monkeypatch):
     agent.try_handle("open chrome")            # pending
     assert agent.try_handle("stop") == "Okay, cancelled."
     assert ran == []                            # never executed
+
+
+# --- Phase 2: keyboard / mouse parsing + risk classification -----------------
+
+@pytest.mark.parametrize("text,name,risk,check", [
+    ("copy", "press_hotkey", RISK_SAFE, lambda a: a.params["keys"] == ["ctrl", "c"]),
+    ("paste", "press_hotkey", RISK_RISKY, lambda a: a.params["keys"] == ["ctrl", "v"]),
+    ("switch window", "press_hotkey", RISK_SAFE, lambda a: a.params["keys"] == ["alt", "tab"]),
+    ("close window", "press_hotkey", RISK_RISKY, lambda a: a.params["keys"] == ["alt", "f4"]),
+    ("volume up", "media_key", RISK_SAFE, lambda a: a.params["key"] == "volumeup"),
+    ("mute", "media_key", RISK_SAFE, lambda a: a.params["key"] == "volumemute"),
+    ("scroll down", "scroll", RISK_SAFE, lambda a: a.params["amount"] < 0),
+    ("scroll up 300", "scroll", RISK_SAFE, lambda a: a.params["amount"] == 300),
+    ("click", "mouse_click", RISK_RISKY, lambda a: a.params.get("button") == "left"),
+    ("double click", "mouse_click", RISK_RISKY, lambda a: a.params.get("double") is True),
+    ("press control shift p", "press_hotkey", RISK_RISKY, lambda a: a.params["keys"] == ["ctrl", "shift", "p"]),
+])
+def test_phase2_parse_and_risk(agent, text, name, risk, check):
+    action = agent.parse(text)
+    assert action is not None and action.name == name
+    assert action.risk == risk
+    assert check(action)
+
+
+def test_type_preserves_case_and_is_risky(agent):
+    action = agent.parse("Type Hello World")
+    assert action.name == "type_text"
+    assert action.params["text"] == "Hello World"   # not lowercased
+    assert action.risk == RISK_RISKY
+
+
+@pytest.mark.parametrize("text", ["copy that down", "i need to paste my thoughts", "click of a button"])
+def test_phase2_exact_match_does_not_hijack_chat(agent, text):
+    assert agent.parse(text) is None
+
+
+def test_risky_keyboard_command_confirms_before_acting(agent, monkeypatch):
+    """A risky keyboard action (paste) must ask first, then run on 'yes' — with a
+    fake backend so nothing real is typed."""
+    calls = []
+
+    class FakePG:
+        FAILSAFE = True
+        PAUSE = 0.0
+        def hotkey(self, *keys): calls.append(("hotkey", keys))
+    monkeypatch.setattr(actions, "_pg", FakePG())
+    monkeypatch.setattr(actions, "_pg_tried", True)
+
+    ask = agent.try_handle("paste")
+    assert "confirm" in ask.lower() and calls == []     # deferred, nothing pressed
+    agent.try_handle("yes")
+    assert calls == [("hotkey", ("ctrl", "v"))]
+
+
+def test_safe_media_command_runs_immediately(agent, monkeypatch):
+    pressed = []
+
+    class FakePG:
+        FAILSAFE = True
+        PAUSE = 0.0
+        def press(self, k): pressed.append(k)
+    monkeypatch.setattr(actions, "_pg", FakePG())
+    monkeypatch.setattr(actions, "_pg_tried", True)
+
+    reply = agent.try_handle("volume up")
+    assert pressed == ["volumeup"]     # ran, no confirmation
+    assert reply == "Done."
+
+
+def test_keyboard_action_without_backend_degrades(agent, monkeypatch):
+    """No pyautogui installed -> a clear message, never a crash."""
+    monkeypatch.setattr(actions, "_pg", None)
+    monkeypatch.setattr(actions, "_pg_tried", True)
+    monkeypatch.setattr(Config, "AGENT_CONFIRM_RISKY", False)  # let it try to run
+    reply = agent.try_handle("copy")
+    assert "isn't installed" in reply
