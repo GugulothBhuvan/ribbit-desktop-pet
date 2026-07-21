@@ -117,7 +117,7 @@ def test_risky_action_asks_then_confirms(agent, monkeypatch):
     ran = []
     monkeypatch.setattr(agent, "parse",
                         lambda t: Action("open_app", {"app": "chrome"}, RISK_RISKY, "open chrome"))
-    monkeypatch.setattr(agent, "_run", lambda a: ran.append(a.name) or "done")
+    monkeypatch.setattr(agent, "_run_plan", lambda plan: ran.append(plan[0].name) or "done")
 
     ask = agent.try_handle("open chrome")
     assert "confirm" in ask.lower() and ran == []      # deferred
@@ -128,7 +128,7 @@ def test_kill_switch_cancels_pending(agent, monkeypatch):
     ran = []
     monkeypatch.setattr(agent, "parse",
                         lambda t: Action("open_app", {"app": "chrome"}, RISK_RISKY, "open chrome"))
-    monkeypatch.setattr(agent, "_run", lambda a: ran.append(a.name))
+    monkeypatch.setattr(agent, "_run_plan", lambda plan: ran.append(plan[0].name))
     agent.try_handle("open chrome")            # pending
     assert agent.try_handle("stop") == "Okay, cancelled."
     assert ran == []                            # never executed
@@ -208,3 +208,75 @@ def test_keyboard_action_without_backend_degrades(agent, monkeypatch):
     monkeypatch.setattr(Config, "AGENT_CONFIRM_RISKY", False)  # let it try to run
     reply = agent.try_handle("copy")
     assert "isn't installed" in reply
+
+
+# --- Phase 2b: LLM parsing of flexible / multi-step commands ------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("open a new tab and search youtube for lofi", True),
+    ("fire up spotify", True),
+    ("close all my tabs", True),
+    ("tell me about opening a coffee shop", False),   # 'opening' mid-sentence
+    ("what's the weather", False),
+    ("how do i search for a job", False),             # 'search' not at the start
+])
+def test_might_be_command_prefilter(agent, text, expected):
+    assert agent.might_be_command(text) is expected
+
+
+def test_plan_from_llm_multistep(agent):
+    js = '{"actions":[{"name":"press_hotkey","params":{"keys":["ctrl","t"]}},' \
+         '{"name":"web_search","params":{"query":"lofi","engine":"youtube"}}]}'
+    plan = agent.plan_from_llm(js)
+    assert plan is not None and len(plan) == 2
+    assert plan[0].name == "press_hotkey" and plan[0].risk == RISK_SAFE   # ctrl+t is safe
+    assert plan[1].name == "web_search"
+
+
+def test_plan_from_llm_handles_fences_and_prose(agent):
+    reply = 'Sure!\n```json\n{"actions":[{"name":"open_app","params":{"app":"chrome"}}]}\n```'
+    plan = agent.plan_from_llm(reply)
+    assert plan and plan[0].name == "open_app"
+
+
+def test_plan_from_llm_chat_marker_returns_none(agent):
+    assert agent.plan_from_llm('{"chat": true}') is None
+    assert agent.plan_from_llm("i can't help with that, sorry") is None  # no JSON
+
+
+def test_plan_from_llm_drops_invalid_actions(agent):
+    """Unknown action names and non-allowlisted apps must be dropped, never run.
+    The model's output is not trusted."""
+    js = ('{"actions":['
+          '{"name":"delete_everything","params":{}},'          # unknown -> drop
+          '{"name":"open_app","params":{"app":"malware.exe"}},'  # not allowlisted -> drop
+          '{"name":"open_app","params":{"app":"notepad"}}]}')    # valid -> keep
+    plan = agent.plan_from_llm(js)
+    assert plan is not None and len(plan) == 1
+    assert plan[0].params["app"] == "notepad"
+
+
+def test_plan_all_invalid_returns_none(agent):
+    assert agent.plan_from_llm('{"actions":[{"name":"nope","params":{}}]}') is None
+
+
+def test_llm_risky_step_confirms_whole_plan(agent, monkeypatch):
+    """A plan containing a risky step (type_text) must confirm before ANY step
+    runs — no partial execution before the user agrees."""
+    ran = []
+    monkeypatch.setattr(actions, "execute", lambda a: ran.append(a.name) or actions.ActionResult(True, "ok"))
+    plan = agent.plan_from_llm(
+        '{"actions":[{"name":"open_app","params":{"app":"notepad"}},'
+        '{"name":"type_text","params":{"text":"hello"}}]}')
+    ask = agent.execute_or_confirm(plan)
+    assert "confirm" in ask.lower() and ran == []      # nothing ran yet
+    agent.try_handle("yes")
+    assert ran == ["open_app", "type_text"]            # whole plan ran on yes
+
+
+def test_llm_risk_classification(agent):
+    assert agent._risk_for("type_text", {}) == RISK_RISKY
+    assert agent._risk_for("mouse_click", {}) == RISK_RISKY
+    assert agent._risk_for("press_hotkey", {"keys": ["ctrl", "c"]}) == RISK_SAFE      # copy
+    assert agent._risk_for("press_hotkey", {"keys": ["ctrl", "v"]}) == RISK_RISKY     # paste
+    assert agent._risk_for("web_search", {}) == RISK_SAFE

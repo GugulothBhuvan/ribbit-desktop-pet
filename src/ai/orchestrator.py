@@ -179,17 +179,27 @@ class AIOrchestrator(QObject):
             return
         logger.info(f"Handling user query: '{user_prompt}'")
 
-        # Desktop agent (opt-in): if this line is a computer command ("open
-        # Chrome", "search YouTube for ..."), do it and speak the result instead
-        # of chatting. Returns None for anything that isn't a clear command.
+        # Desktop agent (opt-in). 1) Fast rule path: clear single commands run
+        # synchronously. 2) LLM path: imperative lines the rules missed
+        # ("open a new tab and search YouTube for lofi") are parsed into an
+        # action plan on the worker loop. Anything else falls through to chat.
         agent_reply = self.agent.try_handle(user_prompt)
         if agent_reply is not None:
-            logger.info(f"Agent handled command; reply: '{agent_reply}'")
+            logger.info(f"Agent (rules) handled command; reply: '{agent_reply}'")
             self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": agent_reply})
             return
 
-        # Check if the query asks the pet to look at screen / code / design.
-        # Only route to vision when the active provider can actually see.
+        if Config.AGENT_ENABLED and self.agent.might_be_command(user_prompt):
+            self.application.run_async(
+                self._agent_llm_then_maybe_chat(user_prompt, pet_state, conversational))
+            return
+
+        self._start_chat(user_prompt, pet_state, conversational)
+
+    def _start_chat(self, user_prompt: str, pet_state: Dict[str, Any], conversational: bool):
+        """The normal conversational path (vision-routing + streamed reply).
+        Extracted so the LLM agent parser can fall back to chat without
+        re-entering the agent check (which would loop)."""
         visual_keywords = ["look", "screen", "code", "design", "window", "desktop", "ui", "showing"]
         is_visual = any(kw in user_prompt.lower() for kw in visual_keywords)
 
@@ -205,6 +215,29 @@ class AIOrchestrator(QObject):
         self._query_in_flight = True
         self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": user_prompt})
         self.application.run_async(self._stream_query(user_prompt, pet_state, conversational=conversational))
+
+    async def _agent_llm_then_maybe_chat(self, text: str, pet_state: Dict[str, Any],
+                                         conversational: bool):
+        """Ask the LLM to parse an imperative line into an action plan; run it if
+        so, otherwise fall through to a normal chat reply with the same line."""
+        plan = None
+        try:
+            system, user = self.agent.command_prompt(text)
+            provider = self.get_active_provider()
+            full = ""
+            async for chunk in provider.stream(user, {"system_prompt": system}):
+                full += chunk
+            plan = self.agent.plan_from_llm(full)
+        except Exception as e:
+            logger.error(f"Agent LLM parse failed: {e}")
+
+        if plan:
+            reply = self.agent.execute_or_confirm(plan)
+            logger.info(f"Agent (LLM) ran {len(plan)} action(s); reply: '{reply}'")
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": reply})
+        else:
+            # Not a command after all -> chat with the original line.
+            self._start_chat(text, pet_state, conversational)
 
     def handle_user_query_with_image(self, user_prompt: str, pet_state: Dict[str, Any],
                                      image: QImage, conversational: bool = False):

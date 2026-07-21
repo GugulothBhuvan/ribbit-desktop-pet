@@ -10,7 +10,8 @@ Risky actions (later phases) stash a pending action and ask for confirmation;
 'yes' runs it, 'no'/'stop'/'cancel' clears it (the kill switch).
 """
 import re
-from typing import Optional
+import json
+from typing import Optional, List
 
 from src.config import Config
 from src.agent import actions
@@ -18,6 +19,17 @@ from src.agent.actions import Action, RISK_SAFE, RISK_RISKY
 from src.utils.logger import get_logger
 
 logger = get_logger("DesktopAgent")
+
+# Utterances that MIGHT be a command (checked only when the rules didn't already
+# match). Kept to imperative starts so chat like "tell me about opening a shop"
+# — which merely contains "open" — is not sent to the LLM parser.
+COMMAND_VERBS = (
+    "open", "launch", "start", "run", "close", "search", "google", "find",
+    "type", "write", "click", "scroll", "press", "switch", "play", "pause",
+    "mute", "unmute", "volume", "go to", "goto", "pull up", "fire up", "bring up",
+    "copy", "paste", "cut", "select", "save", "undo", "redo", "maximize",
+    "minimize", "screenshot", "new tab", "new window", "refresh",
+)
 
 # "open <site>" shortcuts (bare words that aren't apps but are obviously sites).
 KNOWN_SITES = {
@@ -102,31 +114,57 @@ def _looks_like_url(s: str) -> bool:
     return s.startswith(("http://", "https://")) or bool(re.match(r"^[\w-]+(\.[\w-]+)+$", s))
 
 
+def _extract_json(text: str):
+    """Pulls a JSON object out of an LLM reply that may wrap it in ``` fences or
+    stray prose. Returns the parsed object, or None."""
+    if not text:
+        return None
+    # Prefer a fenced block, else the outermost {...}.
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    candidate = fence.group(1) if fence else None
+    if candidate is None:
+        start, end = text.find("{"), text.rfind("}")
+        candidate = text[start:end + 1] if 0 <= start < end else None
+    if not candidate:
+        return None
+    try:
+        return json.loads(candidate)
+    except (ValueError, TypeError):
+        return None
+
+
+# Hotkey combos that are safe to run without confirmation (from NAMED_HOTKEYS).
+SAFE_HOTKEY_COMBOS = {tuple(keys) for keys, risk in NAMED_HOTKEYS.values() if risk == RISK_SAFE}
+
+
 class DesktopAgent:
     def __init__(self):
-        self._pending: Optional[Action] = None
+        self._pending: Optional[List[Action]] = None   # a plan awaiting confirmation
 
     def try_handle(self, text: str) -> Optional[str]:
         """Returns the pet's spoken response if this line was a command (executed
-        or awaiting confirmation), or None to let it fall through to chat."""
+        or awaiting confirmation), or None to let it fall through to chat/LLM."""
         if not Config.AGENT_ENABLED:
             return None
         text = (text or "").strip()
         if not text:
             return None
 
-        # A pending risky action: resolve confirmation / kill switch first.
+        # A pending plan: resolve confirmation / kill switch first.
         if self._pending is not None:
             return self._resolve_pending(text)
 
         action = self.parse(text)
         if action is None:
-            return None  # not a command -> chat
+            return None  # rules didn't match -> caller may try the LLM parser
+        return self.execute_or_confirm([action])
 
-        if action.risk == RISK_RISKY and Config.AGENT_CONFIRM_RISKY:
-            self._pending = action
-            return f"{action.summary}? Say yes to confirm, or no to cancel."
-        return self._run(action)
+    def might_be_command(self, text: str) -> bool:
+        """Cheap pre-filter: worth asking the LLM to parse this as a command?
+        Only true for imperative starts, so plain chat never triggers an LLM
+        round-trip."""
+        low = _WAKE_PREFIX.sub("", text.strip()).lower()
+        return any(low == v or low.startswith(v + " ") for v in COMMAND_VERBS)
 
     def parse(self, text: str) -> Optional[Action]:
         """Maps a clear command to an Action, or None. Conservative by design."""
@@ -201,10 +239,32 @@ class DesktopAgent:
 
         return None
 
-    def _run(self, action: Action) -> str:
-        result = actions.execute(action)
-        logger.info(f"AGENT executed {action.name} params={action.params} ok={result.ok}")
-        return result.message
+    # --- plan execution + confirmation ------------------------------------
+
+    def execute_or_confirm(self, plan: List[Action]) -> str:
+        """Runs a plan now, or asks first if any step is risky."""
+        if not plan:
+            return "I didn't catch a command."
+        risky = Config.AGENT_CONFIRM_RISKY and any(a.risk == RISK_RISKY for a in plan)
+        if risky:
+            self._pending = plan
+            return f"{self._plan_summary(plan)}? Say yes to confirm, or no to cancel."
+        return self._run_plan(plan)
+
+    def _run_plan(self, plan: List[Action]) -> str:
+        """Executes steps in order, stopping at the first failure."""
+        messages = []
+        for action in plan:
+            result = actions.execute(action)
+            logger.info(f"AGENT executed {action.name} params={action.params} ok={result.ok}")
+            messages.append(result.message)
+            if not result.ok:
+                break
+        return " ".join(messages)
+
+    @staticmethod
+    def _plan_summary(plan: List[Action]) -> str:
+        return " then ".join(a.summary or a.name for a in plan)
 
     def _resolve_pending(self, text: str) -> str:
         low = text.lower()
@@ -212,7 +272,91 @@ class DesktopAgent:
             self._pending = None
             return "Okay, cancelled."
         if any(w in low for w in _YES):
-            action = self._pending
+            plan = self._pending
             self._pending = None
-            return self._run(action) if action else "Nothing to confirm."
+            return self._run_plan(plan) if plan else "Nothing to confirm."
         return "Say yes to confirm, or no to cancel."
+
+    # --- LLM parsing (flexible / multi-step commands) ---------------------
+
+    def command_prompt(self, text: str):
+        """(system, user) prompts asking the LLM to turn a request into a JSON
+        plan of known actions — or declare it chat."""
+        apps = ", ".join(sorted(set(actions.app_allowlist().values())))
+        system = (
+            "You convert a user's request into desktop actions, or decide it is "
+            "just conversation. Respond with ONLY a JSON object, no prose.\n"
+            'If it is a computer command: {"actions": [{"name": "...", "params": {...}}, ...]}\n'
+            'If it is not a command (chit-chat, a question): {"chat": true}\n\n'
+            "Allowed actions and params:\n"
+            "- open_app {app}          app must be one of: " + apps + "\n"
+            "- open_url {url}          http/https only\n"
+            "- web_search {query, engine}   engine is 'google' or 'youtube'\n"
+            "- press_hotkey {keys}     keys is a list like ['ctrl','t'] or ['alt','tab']\n"
+            "- type_text {text}\n"
+            "- scroll {amount}         positive up, negative down\n"
+            "- mouse_click {button, double}\n"
+            "- media_key {key}         volumeup|volumedown|volumemute|playpause|nexttrack|prevtrack\n\n"
+            "Use multiple actions for multi-step requests, in order. Never invent "
+            "action names or apps outside the list."
+        )
+        return system, text.strip()
+
+    def plan_from_llm(self, llm_text: str) -> Optional[List[Action]]:
+        """Parses the LLM's JSON into a validated plan, or None (chat / garbage /
+        no valid actions). Every action is re-validated and re-risk-classified
+        here — the model's output is never trusted to be safe on its own."""
+        data = _extract_json(llm_text)
+        if not isinstance(data, dict) or data.get("chat") is True:
+            return None
+        raw = data.get("actions")
+        if not isinstance(raw, list):
+            return None
+
+        plan: List[Action] = []
+        for item in raw:
+            action = self._validate_action(item)
+            if action is not None:
+                plan.append(action)
+        return plan or None
+
+    def _validate_action(self, item) -> Optional[Action]:
+        if not isinstance(item, dict):
+            return None
+        name = item.get("name")
+        params = item.get("params") or {}
+        if name not in actions.HANDLERS or not isinstance(params, dict):
+            logger.warning(f"Dropping unknown/invalid agent action: {item}")
+            return None
+
+        # Per-action sanity: refuse anything the safe handlers would reject anyway.
+        if name == "open_app" and str(params.get("app", "")).lower() not in actions.app_allowlist():
+            return None
+        if name == "open_url" and not _looks_like_url(str(params.get("url", "")).lower()):
+            return None
+        if name == "press_hotkey" and not isinstance(params.get("keys"), list):
+            return None
+
+        return Action(name, params, self._risk_for(name, params), self._describe(name, params))
+
+    @staticmethod
+    def _risk_for(name: str, params: dict) -> str:
+        if name in ("type_text", "mouse_click"):
+            return RISK_RISKY
+        if name == "press_hotkey":
+            return RISK_SAFE if tuple(params.get("keys", [])) in SAFE_HOTKEY_COMBOS else RISK_RISKY
+        return RISK_SAFE   # open_app / open_url / web_search / scroll / media_key
+
+    @staticmethod
+    def _describe(name: str, params: dict) -> str:
+        if name == "open_app":
+            return f"open {params.get('app')}"
+        if name == "open_url":
+            return f"open {params.get('url')}"
+        if name == "web_search":
+            return f"search {params.get('engine', 'google')} for {params.get('query')}"
+        if name == "type_text":
+            return f"type \"{str(params.get('text',''))[:40]}\""
+        if name == "press_hotkey":
+            return "press " + "+".join(params.get("keys", []))
+        return name.replace("_", " ")
