@@ -140,12 +140,16 @@ SAFE_HOTKEY_COMBOS = {tuple(keys) for keys, risk in NAMED_HOTKEYS.values() if ri
 class DesktopAgent:
     def __init__(self):
         self._pending: Optional[List[Action]] = None   # a plan awaiting confirmation
-        # Injected by the orchestrator: schedules the async screenshot->vision->
-        # click flow. Left None means vision-click is unavailable.
+        # Injected by the orchestrator: schedule the async screenshot->vision->
+        # click flow, and the ReAct loop. None means unavailable.
         self._vision_click_fn = None
+        self._react_fn = None
 
     def set_vision_click_fn(self, fn):
         self._vision_click_fn = fn
+
+    def set_react_fn(self, fn):
+        self._react_fn = fn
 
     def try_handle(self, text: str) -> Optional[str]:
         """Returns the pet's spoken response if this line was a command (executed
@@ -284,6 +288,14 @@ class DesktopAgent:
                 else:
                     messages.append("Vision clicking isn't set up.")
                 continue
+            if action.name == "react":
+                goal = action.params.get("goal", "")
+                if self._react_fn:
+                    self._react_fn(goal)
+                    messages.append(f"Okay, working on it: {goal}…")
+                else:
+                    messages.append("That needs step-by-step mode, which is off.")
+                continue
             result = actions.execute(action)
             logger.info(f"AGENT executed {action.name} params={action.params} ok={result.ok}")
             messages.append(result.message)
@@ -327,9 +339,22 @@ class DesktopAgent:
             "- mouse_click {button, double}\n"
             "- media_key {key}         volumeup|volumedown|volumemute|playpause|nexttrack|prevtrack\n\n"
             "Use multiple actions for multi-step requests, in order. Never invent "
-            "action names or apps outside the list."
+            "action names or apps outside the list.\n"
+            'If the task needs LOOKING at the screen between steps (navigating a UI, '
+            '"find X and click it", "scroll until ...") respond {"react": "<goal>"} '
+            "instead of actions."
         )
         return system, text.strip()
+
+    def react_goal(self, llm_text: str) -> Optional[str]:
+        """If the LLM decided the request needs the observe->act loop, returns the
+        restated goal; else None."""
+        data = _extract_json(llm_text)
+        if isinstance(data, dict):
+            goal = data.get("react")
+            if isinstance(goal, str) and goal.strip():
+                return goal.strip()
+        return None
 
     def plan_from_llm(self, llm_text: str) -> Optional[List[Action]]:
         """Parses the LLM's JSON into a validated plan, or None (chat / garbage /

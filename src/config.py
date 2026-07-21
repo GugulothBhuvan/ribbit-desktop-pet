@@ -81,6 +81,11 @@ class Config:
     # keyboard, so it must be a deliberate opt-in. Risky actions always confirm.
     AGENT_ENABLED = os.getenv("AGENT_ENABLED", "0") == "1"
     AGENT_CONFIRM_RISKY = os.getenv("AGENT_CONFIRM_RISKY", "1") == "1"
+    # ReAct loop (observe->reason->act until done). The riskiest capability — it
+    # acts autonomously — so it's a SEPARATE opt-in on top of AGENT_ENABLED, with
+    # a hard step cap. Requires a vision-capable model.
+    AGENT_REACT_ENABLED = os.getenv("AGENT_REACT_ENABLED", "0") == "1"
+    AGENT_REACT_MAX_STEPS = int(os.getenv("AGENT_REACT_MAX_STEPS", "6"))
     # Extra app launchers as "name=command" pairs, comma-separated, merged onto
     # the built-in allowlist. e.g. "slack=slack,steam=steam"
     AGENT_EXTRA_APPS = os.getenv("AGENT_EXTRA_APPS", "")

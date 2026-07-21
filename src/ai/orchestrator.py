@@ -83,6 +83,7 @@ class AIOrchestrator(QObject):
         EventType.VOICE_RECORD_STOPPED,
         EventType.CHAT_QUERY_REQUESTED,
         EventType.VISION_CLICK_CAPTURED,
+        EventType.AGENT_SCREEN_CAPTURED,
     ]
 
     def __init__(self, event_bus: EventBus, context_engine: ContextEngine,
@@ -108,6 +109,10 @@ class AIOrchestrator(QObject):
         from src.agent.agent import DesktopAgent
         self.agent = DesktopAgent()
         self.agent.set_vision_click_fn(self._request_vision_click)
+        self.agent.set_react_fn(self._request_react)
+        self._screen_future = None      # resolved by AGENT_SCREEN_CAPTURED
+        self._react_running = False
+        self._react_abort = False
 
         for event_type in self.SUBSCRIBED_EVENTS:
             self.event_bus.subscribe(event_type, self.on_event, executor="gui")
@@ -141,6 +146,13 @@ class AIOrchestrator(QObject):
                 self.application.run_async(self._do_vision_click(
                     data.get("target", ""), bool(data.get("double")),
                     image, data.get("geometry", (0, 0, image.width(), image.height()))))
+
+        elif event_type == EventType.AGENT_SCREEN_CAPTURED:
+            # Resolve the screenshot the ReAct loop is awaiting.
+            fut = self._screen_future
+            if fut is not None and not fut.done():
+                fut.get_loop().call_soon_threadsafe(
+                    fut.set_result, (data.get("image"), data.get("geometry")))
 
     def _request_vision_click(self, target: str, double: bool = False):
         """Injected into the agent: asks the window to capture, which comes back
@@ -195,6 +207,96 @@ class AIOrchestrator(QObject):
             self.event_bus.publish(EventType.SPEECH_REQUESTED,
                                    {"text": "Something went wrong finding that."})
 
+    # --- ReAct loop (observe -> reason -> act) ----------------------------
+
+    def _request_react(self, goal: str):
+        """Injected into the agent: kick off the loop on the worker loop."""
+        self.application.run_async(self._run_react_loop(goal))
+
+    async def _capture_screen(self):
+        """Requests a monitor grab from the window and awaits it. Returns
+        (image, geometry). Raises on failure/timeout."""
+        loop = asyncio.get_running_loop()
+        self._screen_future = loop.create_future()
+        self.event_bus.publish(EventType.AGENT_SCREEN_REQUESTED, {})
+        try:
+            image, geometry = await asyncio.wait_for(self._screen_future, timeout=8.0)
+        finally:
+            self._screen_future = None
+        if image is None or geometry is None:
+            raise RuntimeError("screen capture failed")
+        return image, geometry
+
+    async def _run_react_loop(self, goal: str):
+        """Drives react.run_react with real observe/decide/act. Confirmed once by
+        the agent before we ever get here; the step cap + pyautogui FAILSAFE are
+        the backstops."""
+        from src.ai import vision
+        from src.ai.vision import MAX_DIMENSION
+        from src.agent import react, vision_click, actions as agent_actions
+
+        if self._react_running:
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": "I'm already on a task."})
+            return
+        provider = self.get_active_provider()
+        if not provider.supports_vision():
+            self.event_bus.publish(EventType.SPEECH_REQUESTED,
+                                   {"text": "Step-by-step mode needs a model that can see the screen."})
+            return
+
+        self._react_running = True
+        self._react_abort = False
+        self.event_bus.publish(EventType.LLM_REQUEST_SENT, {"prompt": goal})
+        loop = asyncio.get_running_loop()
+
+        async def capture():
+            return await self._capture_screen()
+
+        async def decide(g, history, image, geometry, step):
+            gx, gy, gw, gh = geometry
+            iw, ih = vision_click.downscaled_size(gw, gh, MAX_DIMENSION)
+            jpeg = await loop.run_in_executor(None, vision.process_capture, image)
+            context = {"system_prompt": react.step_prompt(g, history, iw, ih),
+                       "screenshot_bytes": jpeg}
+            full = ""
+            async for chunk in provider.stream("What is the next step?", context):
+                full += chunk
+            return react.parse_step(full)
+
+        async def act(action, image, geometry):
+            gx, gy, gw, gh = geometry
+            iw, ih = vision_click.downscaled_size(gw, gh, MAX_DIMENSION)
+            name = action.get("name")
+            if name == "click":
+                sx, sy = vision_click.map_to_screen(int(action.get("x", 0)), int(action.get("y", 0)),
+                                                    iw, ih, geometry)
+                res = await loop.run_in_executor(None, agent_actions.click_at, sx, sy, False)
+                return f"clicked ({sx},{sy})" if res.ok else res.message
+            if name == "type":
+                res = await loop.run_in_executor(None, agent_actions.type_text, str(action.get("text", "")))
+                return res.message
+            if name == "scroll":
+                res = await loop.run_in_executor(None, agent_actions.scroll, int(action.get("amount", -500)))
+                return res.message
+            if name == "press":
+                res = await loop.run_in_executor(None, agent_actions.press_hotkey, action.get("keys", []))
+                return res.message
+            return "skipped an unknown step"
+
+        try:
+            result = await react.run_react(
+                goal, capture=capture, decide=decide, act=act,
+                max_steps=Config.AGENT_REACT_MAX_STEPS,
+                should_abort=lambda: self._react_abort)
+        except Exception as e:
+            logger.error(f"ReAct loop failed: {e}")
+            result = "That task hit a snag."
+        finally:
+            self._react_running = False
+
+        self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": result})
+        self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
+
     async def _transcribe_and_query(self, wav_path: str):
         """Transcribes the PTT recording and pushes the text through the pipeline.
 
@@ -240,6 +342,12 @@ class AIOrchestrator(QObject):
             logger.info("Query already in flight; ignoring new query.")
             return
         logger.info(f"Handling user query: '{user_prompt}'")
+
+        # Abort a running ReAct task if the user says stop/cancel.
+        if self._react_running and any(w in user_prompt.lower() for w in ("stop", "cancel", "abort")):
+            self._react_abort = True
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": "Stopping."})
+            return
 
         # Desktop agent (opt-in). 1) Fast rule path: clear single commands run
         # synchronously. 2) LLM path: imperative lines the rules missed
@@ -289,6 +397,17 @@ class AIOrchestrator(QObject):
             full = ""
             async for chunk in provider.stream(user, {"system_prompt": system}):
                 full += chunk
+
+            # The model may decide the task needs the observe->act loop.
+            if Config.AGENT_REACT_ENABLED:
+                goal = self.agent.react_goal(full)
+                if goal:
+                    from src.agent.actions import Action, RISK_RISKY
+                    reply = self.agent.execute_or_confirm(
+                        [Action("react", {"goal": goal}, RISK_RISKY, f"work on: {goal}")])
+                    self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": reply})
+                    return
+
             plan = self.agent.plan_from_llm(full)
         except Exception as e:
             logger.error(f"Agent LLM parse failed: {e}")

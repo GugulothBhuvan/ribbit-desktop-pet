@@ -64,6 +64,9 @@ class EventType:
     # Desktop agent vision-click: request a capture, then act on it
     VISION_CLICK_REQUESTED = "VISION_CLICK_REQUESTED"   # {target}
     VISION_CLICK_CAPTURED = "VISION_CLICK_CAPTURED"     # {target, image, geometry}
+    # Generic agent screen grab (used by the ReAct loop each step)
+    AGENT_SCREEN_REQUESTED = "AGENT_SCREEN_REQUESTED"
+    AGENT_SCREEN_CAPTURED = "AGENT_SCREEN_CAPTURED"     # {image, geometry}
 
     # Hands-free conversation mode
     CONVERSATION_STARTED = "CONVERSATION_STARTED"

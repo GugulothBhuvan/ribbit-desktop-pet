@@ -346,3 +346,36 @@ def test_vision_click_triggers_injected_executor(agent, monkeypatch):
     reply = agent.try_handle("click the red button")
     assert calls == [("the red button", False)]
     assert "looking for" in reply.lower()
+
+
+# --- Phase 4: ReAct goal detection + action ----------------------------------
+
+def test_react_goal_parsing(agent):
+    assert agent.react_goal('{"react": "open youtube and play lofi"}') == "open youtube and play lofi"
+    assert agent.react_goal('{"actions": [{"name": "open_app", "params": {"app": "notepad"}}]}') is None
+    assert agent.react_goal('{"chat": true}') is None
+    assert agent.react_goal("not json") is None
+
+
+def test_react_action_triggers_injected_loop(agent, monkeypatch):
+    """A confirmed react action must call the injected loop starter, not
+    actions.execute."""
+    from src.agent.actions import Action
+    monkeypatch.setattr(Config, "AGENT_CONFIRM_RISKY", False)
+    started = []
+    agent.set_react_fn(lambda goal: started.append(goal))
+    reply = agent.execute_or_confirm([Action("react", {"goal": "do the thing"}, RISK_RISKY, "work on it")])
+    assert started == ["do the thing"]
+    assert "working on it" in reply.lower()
+
+
+def test_react_action_confirms_first(agent, monkeypatch):
+    """React is risky, so it must confirm before the loop starts."""
+    from src.agent.actions import Action
+    monkeypatch.setattr(Config, "AGENT_CONFIRM_RISKY", True)
+    started = []
+    agent.set_react_fn(lambda goal: started.append(goal))
+    ask = agent.execute_or_confirm([Action("react", {"goal": "do it"}, RISK_RISKY, "work on: do it")])
+    assert "confirm" in ask.lower() and started == []      # not started yet
+    agent.try_handle("yes")
+    assert started == ["do it"]

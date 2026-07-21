@@ -46,6 +46,7 @@ class PetWindow(QWidget):
         EventType.REMINDER_TRIGGERED,
         EventType.VISION_CAPTURE_REQUESTED,
         EventType.VISION_CLICK_REQUESTED,
+        EventType.AGENT_SCREEN_REQUESTED,
         EventType.TESTS_PASSED,
         EventType.TESTS_FAILED,
         EventType.SPEECH_REQUESTED,
@@ -587,6 +588,11 @@ class PetWindow(QWidget):
             double = data.get("double", False)
             QTimer.singleShot(250, lambda: self._execute_vision_click_capture(target, double))
 
+        elif event_type == EventType.AGENT_SCREEN_REQUESTED:
+            self.hide()
+            self.speech_bubble.hide()
+            QTimer.singleShot(200, self._execute_agent_screen_capture)
+
         elif event_type == EventType.TESTS_PASSED:
             if self._display_ambient_bubble("All unit tests passed! Excellent work! 🎉"):
                 self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WAVE})
@@ -690,6 +696,27 @@ class PetWindow(QWidget):
             self.show()
             self.display_speech_bubble("Oops! I couldn't look at the screen.")
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
+
+    def _execute_agent_screen_capture(self):
+        """Generic monitor grab for the ReAct loop: publishes image + geometry."""
+        try:
+            from PyQt6.QtWidgets import QApplication
+            screen = self.screen() or QApplication.primaryScreen()
+            if not screen:
+                raise RuntimeError("No monitor found to capture.")
+            image = screen.grabWindow(0).toImage()  # pyrefly: ignore[bad-argument-type]
+            if image.isNull() or image.width() == 0:
+                raise RuntimeError(f"Grab of screen '{screen.name()}' returned no image.")
+            geo = screen.geometry()
+            self.show()
+            self.event_bus.publish(EventType.AGENT_SCREEN_CAPTURED, {
+                "image": image,
+                "geometry": (geo.x(), geo.y(), geo.width(), geo.height()),
+            })
+        except Exception as e:
+            logger.error(f"Agent screen capture failed: {e}")
+            self.show()
+            self.event_bus.publish(EventType.AGENT_SCREEN_CAPTURED, {"image": None, "geometry": None})
 
     def paintEvent(self, event):
         painter = QPainter(self)
