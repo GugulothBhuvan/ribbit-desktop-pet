@@ -16,9 +16,10 @@ An intelligent, lightweight, 2D virtual companion that lives directly on your Wi
    - [Mascot Sprite Sheet & Frame Layout](#mascot-sprite-sheet--frame-layout)
 5. [Database Schema](#-database-schema)
 6. [API Integrations & Contracts](#-api-integrations--contracts)
-7. [Performance Budgets](#-performance-budgets)
-8. [Current Status & Audit Findings](#-current-status--audit-findings)
-9. [Development Setup](#-development-setup)
+7. [Desktop Agent (opt-in)](#-desktop-agent-opt-in)
+8. [Performance Budgets](#-performance-budgets)
+9. [Current Status & Audit Findings](#-current-status--audit-findings)
+10. [Development Setup](#-development-setup)
 
 ---
 
@@ -46,6 +47,7 @@ Desktop Pet AI bridges the gap between static, repetitive desktop toys and heavy
 - **Local Episodic Memory:** SQLite-backed persistent database that stores conversation logs, user profiles, reminders, and mascot preferences.
 - **Interactive Controls:** Drag-and-throw kinematics, double-click jumps, head-tracking hover effects, and a custom context menu (scale adjustment, character theme selection, mute, Pomodoro timers, and database pruning).
 - **Voice Input (Deepgram Nova-2):** Push-to-talk or an opt-in, fully on-device wake word.
+- **Desktop Agent (opt-in, off by default):** Voice/chat commands can drive the OS — launch apps, open URLs, search, keyboard/mouse, "click the blue button" via vision, and a ReAct loop that acts step-by-step and re-checks the screen. Every layer is gated and confirms risky actions. See [Desktop Agent](#-desktop-agent-opt-in).
 
 ---
 
@@ -80,6 +82,11 @@ desktop-pet/
 │   │   ├── prompts.py        # Persona + mode-aware system prompt builder
 │   │   ├── vision.py         # On-demand screenshot compressor
 │   │   └── providers/        # LLM, STT & TTS clients (Krutrim, Gemini, Deepgram, Sarvam)
+│   ├── agent/                # Opt-in desktop agent (OS control)
+│   │   ├── agent.py          # Intent parsing, plans, confirm/kill-switch
+│   │   ├── actions.py        # Safe launcher + keyboard/mouse handlers
+│   │   ├── vision_click.py   # Screenshot point -> screen coordinate math
+│   │   └── react.py          # ReAct loop: observe -> reason -> act
 │   ├── physics/
 │   │   ├── gravity.py        # Kinematics simulator
 │   │   ├── collision.py      # Desktop bounds & taskbar offset resolver
@@ -330,6 +337,85 @@ provider's format and the bubble can pace typing off the clip's true duration.
 
 If `TTS_PROVIDER=sarvam` but `SARVAM_API_KEY` is unset, the pet falls back to Deepgram
 rather than going mute, and switches to Sarvam automatically once the key exists.
+
+---
+
+## 🤖 Desktop Agent (opt-in)
+
+The pet can act on your computer from voice or chat. It is **off by default** —
+turning it on hands an LLM your keyboard, so every layer is a deliberate opt-in and
+risky actions confirm first. Built in [`src/agent/`](./src/agent/).
+
+> [!WARNING]
+> This drives real keyboard, mouse, and app launches. Enable it incrementally on a
+> throwaway window first (see the enablement order below). A misheard command or a
+> vision mis-click acts on **your** machine.
+
+### What it can do (four layers)
+
+| Layer | Example | Needs |
+| :--- | :--- | :--- |
+| **1 · Safe launcher** | "Open Chrome", "Search YouTube for lofi", "Open github.com" | `AGENT_ENABLED=1` |
+| **2 · Keyboard / mouse** | "Copy", "Paste", "Scroll down", "Volume up", "Switch window", "Type hello" | + `pip install -e .[agent]` |
+| **2b · Flexible / multi-step** | "Open a new tab and search YouTube for lofi" (LLM parses into an action plan) | — |
+| **3 · Vision-click** | "Click the blue Submit button" (screenshot → vision model → coordinate → click) | a vision model |
+| **4 · ReAct loop** | "Open YouTube and play the first lofi video" (acts step-by-step, re-checking the screen) | + `AGENT_REACT_ENABLED=1` |
+
+Bare "click" still clicks at the cursor; **"click \<something\>"** is the vision-click.
+
+### How it decides command vs chat
+
+Clear single commands are matched by fast, **conservative rules** — they only fire on
+imperative starts that resolve to a known app/site/search/key, so "tell me about
+opening a shop" stays chat. Imperative lines the rules miss go to the **LLM parser**,
+which returns a validated JSON action plan (or `{"react": "…"}` for a loop, or declares
+it chat). The model's output is **never trusted**: every action is re-validated
+(allowlisted app, http/https URL, known key) and **re-risk-classified locally** before
+running.
+
+### Safety model
+
+- **Off by default.** `AGENT_ENABLED=0`; the ReAct loop needs a *second* switch,
+  `AGENT_REACT_ENABLED=0`.
+- **Confirm-risky.** Safe actions (open a known app, volume, copy, search) run
+  immediately; risky ones (paste, close window, type, any click, ReAct) ask first.
+  A multi-step plan with *any* risky step confirms as a whole — no partial execution.
+- **Kill switch.** "no" / "stop" / "cancel" clears a pending action or aborts a running
+  ReAct loop. `pyautogui` **FAILSAFE** (slam the mouse to a screen corner) is the
+  physical abort.
+- **Allowlist.** Only apps in the built-in list (extend via `AGENT_EXTRA_APPS`) launch;
+  only `http`/`https` URLs open.
+- **Bounded loop.** ReAct has a hard step cap (`AGENT_REACT_MAX_STEPS`, default 6), and
+  click coordinates are clamped inside the monitor.
+
+### Coordinate mapping (vision-click & ReAct)
+
+The vision model sees a **downscaled** screenshot of one monitor and returns a point in
+*that* image. The click coordinate undoes the downscale **and** adds the monitor's
+virtual-desktop offset:
+
+```text
+screen = monitor_origin + model_point × (monitor_size ÷ downscaled_image_size)
+```
+
+Kept as pure, unit-tested functions ([`vision_click.py`](./src/agent/vision_click.py)) —
+this is the same offset math that once made non-primary-monitor capture come back blank.
+
+### Enable it (in this order)
+
+```ini
+# 1) Launcher only — try "open notepad" first.
+AGENT_ENABLED=1
+# 2) Keyboard/mouse — then: pip install -e ".[agent]"
+# 3) Vision-click works once a vision model is configured (Krutrim gemma-4 / Gemini).
+# 4) LAST, on a throwaway window:
+AGENT_REACT_ENABLED=1
+AGENT_REACT_MAX_STEPS=6
+```
+
+> Reliability note: layers 3–4 depend on the vision model's pixel-pointing accuracy,
+> which is inherently approximate — large, distinct targets work far better than dense
+> or tiny UIs. The ReAct loop exists precisely to *verify and retry* around that.
 
 ---
 
