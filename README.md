@@ -233,8 +233,29 @@ A mascot may also ship a **`persona.json`** to give it its own character —
 `name`, an LLM `persona`, and canned `greeting` / `idle_quip` lines shown on
 greet (startup / double-click) and when the user goes idle. A pack without one
 falls back to the global `.env` persona (`PET_NAME` / `PET_PERSONA`), so the
-default pet keeps its **Ribbit** personality. The **Modi** pack is a satirical
-politician character that greets with a namaste + *"Mitroonn...."*.
+default pet keeps its **Ribbit** personality.
+
+#### Bundled mascot: Modi
+
+A second, fully playable pet — pick it from right-click → **Change Mascot → Modi**.
+Sheet: [`assets/sprites/modi/spritesheet.png`](./assets/sprites/modi/spritesheet.png)
+(2200×4230 — 9 rows × 8 frames, 275×470 cells), mapped by
+[`mascot_spritesheet_map.json`](./assets/sprites/modi/mascot_spritesheet_map.json).
+
+- **Persona** ([`persona.json`](./assets/sprites/modi/persona.json)) — a satirical
+  Indian-politician caricature: grand Hinglish netaji speech-making (guardrailed
+  against anything genuinely hateful).
+- **Greeting** — a **namaste** (`wave` remapped to the namaste row) with the line
+  *"Mitroonn...."* on startup and double-click.
+- **Idle quip** — after ~5 min idle he says *"Anti-National h kya???"*.
+- **Free-will variety** — the pet picks a variant each episode
+  (`state_variants` in metadata): **idle** = stand still *or* sip chai;
+  **walk** = plain *or* carrying his **jhola** (bag), announced with
+  *"Jhola leke chal pada"*.
+
+The sheet's nine source rows and how each maps to an engine behaviour:
+
+![Modi frame map](./assets/sprites/modi/modi_frame_map.png)
 
 ---
 
@@ -373,6 +394,27 @@ it chat). The model's output is **never trusted**: every action is re-validated
 (allowlisted app, http/https URL, known key) and **re-risk-classified locally** before
 running.
 
+```mermaid
+flowchart TD
+    In["Voice / chat line"] --> Rules{"Conservative rules<br/>match a clear command?"}
+    Rules -- yes --> Val
+    Rules -- no --> Pre{"Imperative start?<br/>(might be a command)"}
+    Pre -- no --> Chat["Normal chat reply"]
+    Pre -- yes --> LLM["LLM parser<br/>(JSON plan / react / chat)"]
+    LLM -- "chat / garbage" --> Chat
+    LLM -- "{react: goal}" --> React["ReAct loop<br/>(if AGENT_REACT_ENABLED)"]
+    LLM -- "action plan" --> Val["Re-validate + re-classify risk<br/>(allowlist, http/https, known keys)"]
+    Val --> Risk{"Any risky step?"}
+    Risk -- "no (safe)" --> Run["Execute plan"]
+    Risk -- yes --> Confirm{"Confirm:<br/>'say yes'"}
+    Confirm -- "no / stop" --> Cancel["Cancelled"]
+    Confirm -- yes --> Run
+    Run --> VC{"vision_click?"}
+    VC -- yes --> Vision["Screenshot → vision model →<br/>map point → click"]
+    VC -- no --> Do["subprocess / webbrowser / pyautogui"]
+    Run --> Speak["Pet speaks the result"]
+```
+
 ### Safety model
 
 - **Off by default.** `AGENT_ENABLED=0`; the ReAct loop needs a *second* switch,
@@ -400,6 +442,32 @@ screen = monitor_origin + model_point × (monitor_size ÷ downscaled_image_size)
 
 Kept as pure, unit-tested functions ([`vision_click.py`](./src/agent/vision_click.py)) —
 this is the same offset math that once made non-primary-monitor capture come back blank.
+
+### ReAct loop (observe → reason → act)
+
+For goals that need checking the screen *between* steps ("open YouTube and play the
+first lofi video"), a single plan isn't enough. The loop
+([`react.py`](./src/agent/react.py)) screenshots, lets the vision model pick **one**
+next action, executes it, and screenshots again — so it can notice its last action did
+nothing and correct or stop. The control flow (done / cap / give-up / abort) is
+injected and unit-tested; only the model's per-step judgement is live. Unreadable model
+output becomes *give-up*, never a blind action.
+
+```mermaid
+flowchart TD
+    Start["Confirmed goal"] --> Abort{"Abort requested?<br/>('stop' / FAILSAFE)"}
+    Abort -- yes --> Stop["Stop"]
+    Abort -- no --> Cap{"Step &lt; max<br/>(default 6)?"}
+    Cap -- no --> Give["Give up:<br/>'tried N steps'"]
+    Cap -- yes --> Shot["Screenshot the monitor"]
+    Shot --> Reason["Vision model + goal + history<br/>→ one JSON decision"]
+    Reason --> Kind{"decision"}
+    Kind -- "done" --> Done["Report success"]
+    Kind -- "give_up / garbage" --> Give
+    Kind -- "action" --> Act["Execute: click / type /<br/>scroll / press (coords clamped)"]
+    Act --> Record["Append to history"]
+    Record --> Abort
+```
 
 ### Enable it (in this order)
 
