@@ -82,6 +82,7 @@ class AIOrchestrator(QObject):
         EventType.SCREEN_CAPTURED,
         EventType.VOICE_RECORD_STOPPED,
         EventType.CHAT_QUERY_REQUESTED,
+        EventType.VISION_CLICK_CAPTURED,
     ]
 
     def __init__(self, event_bus: EventBus, context_engine: ContextEngine,
@@ -106,6 +107,7 @@ class AIOrchestrator(QObject):
         # (opt-in via Config.AGENT_ENABLED) before they reach the chat LLM.
         from src.agent.agent import DesktopAgent
         self.agent = DesktopAgent()
+        self.agent.set_vision_click_fn(self._request_vision_click)
 
         for event_type in self.SUBSCRIBED_EVENTS:
             self.event_bus.subscribe(event_type, self.on_event, executor="gui")
@@ -132,6 +134,66 @@ class AIOrchestrator(QObject):
             prompt = data.get("prompt", "")
             pet_state = data.get("pet_state", {})
             self.handle_user_query(prompt, pet_state)
+
+        elif event_type == EventType.VISION_CLICK_CAPTURED:
+            image = data.get("image")
+            if isinstance(image, QImage) and not image.isNull():
+                self.application.run_async(self._do_vision_click(
+                    data.get("target", ""), bool(data.get("double")),
+                    image, data.get("geometry", (0, 0, image.width(), image.height()))))
+
+    def _request_vision_click(self, target: str, double: bool = False):
+        """Injected into the agent: asks the window to capture, which comes back
+        as VISION_CLICK_CAPTURED."""
+        self.event_bus.publish(EventType.VISION_CLICK_REQUESTED,
+                               {"target": target, "double": double})
+
+    async def _do_vision_click(self, target, double, image, geometry):
+        """Locate `target` in the screenshot via the vision model and click it.
+
+        The model works on a downscaled image and returns a point in THAT space;
+        we map it back through the downscale ratio AND the monitor offset to a
+        real screen coordinate (see agent.vision_click). Runs on the worker loop."""
+        from src.ai import vision
+        from src.ai.vision import MAX_DIMENSION
+        from src.agent import vision_click, actions as agent_actions
+        try:
+            provider = self.get_active_provider()
+            if not provider.supports_vision():
+                self.event_bus.publish(EventType.SPEECH_REQUESTED,
+                                       {"text": "My current model can't see the screen to click."})
+                return
+
+            loop = asyncio.get_running_loop()
+            jpeg = await loop.run_in_executor(None, vision.process_capture, image)
+
+            gx, gy, gw, gh = geometry
+            iw, ih = vision_click.downscaled_size(gw, gh, MAX_DIMENSION)
+            system = (
+                "You locate a UI element in a screenshot for a mouse click. The image "
+                f"is {iw}x{ih} pixels. Reply with ONLY JSON: "
+                '{"found": true, "x": <px>, "y": <px>} at the CENTER of the element, '
+                'or {"found": false} if it is not visible. No other text.'
+            )
+            context = {"system_prompt": system, "screenshot_bytes": jpeg}
+            full = ""
+            async for chunk in provider.stream(f"Find: {target}", context):
+                full += chunk
+
+            point = vision_click.parse_point(full)
+            if point is None:
+                self.event_bus.publish(EventType.SPEECH_REQUESTED,
+                                       {"text": f"I couldn't find {target} on the screen."})
+                return
+
+            sx, sy = vision_click.map_to_screen(point[0], point[1], iw, ih, geometry)
+            result = await loop.run_in_executor(None, agent_actions.click_at, sx, sy, double)
+            self.event_bus.publish(EventType.SPEECH_REQUESTED,
+                                   {"text": f"Clicked {target}." if result.ok else result.message})
+        except Exception as e:
+            logger.error(f"Vision-click failed: {e}")
+            self.event_bus.publish(EventType.SPEECH_REQUESTED,
+                                   {"text": "Something went wrong finding that."})
 
     async def _transcribe_and_query(self, wav_path: str):
         """Transcribes the PTT recording and pushes the text through the pipeline.

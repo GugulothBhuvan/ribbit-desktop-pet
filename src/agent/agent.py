@@ -140,6 +140,12 @@ SAFE_HOTKEY_COMBOS = {tuple(keys) for keys, risk in NAMED_HOTKEYS.values() if ri
 class DesktopAgent:
     def __init__(self):
         self._pending: Optional[List[Action]] = None   # a plan awaiting confirmation
+        # Injected by the orchestrator: schedules the async screenshot->vision->
+        # click flow. Left None means vision-click is unavailable.
+        self._vision_click_fn = None
+
+    def set_vision_click_fn(self, fn):
+        self._vision_click_fn = fn
 
     def try_handle(self, text: str) -> Optional[str]:
         """Returns the pet's spoken response if this line was a command (executed
@@ -230,6 +236,17 @@ class DesktopAgent:
         if low in ("right click", "right-click"):
             return Action("mouse_click", {"button": "right"}, RISK_RISKY, "right-click")
 
+        # "click <target>" / "double click <target>" -> find it by vision, click.
+        m = re.match(r"^(?:double[- ]?click|double tap)\s+(?:on\s+)?(.+)$", low)
+        if m:
+            target = m.group(1).strip()
+            return Action("vision_click", {"target": target, "double": True},
+                          RISK_RISKY, f"double-click {target}")
+        m = re.match(r"^(?:click|tap)\s+(?:on\s+)?(.+)$", low)
+        if m:
+            target = m.group(1).strip()
+            return Action("vision_click", {"target": target}, RISK_RISKY, f"click {target}")
+
         m = re.match(r"^press\s+(.+)$", low)
         if m:
             keys = _words_to_keys(m.group(1))
@@ -252,9 +269,21 @@ class DesktopAgent:
         return self._run_plan(plan)
 
     def _run_plan(self, plan: List[Action]) -> str:
-        """Executes steps in order, stopping at the first failure."""
+        """Executes steps in order, stopping at the first failure.
+
+        vision_click is async (screenshot -> vision -> click): it's kicked off
+        via the injected executor and its result is spoken later, so here it just
+        schedules and reports 'looking...'."""
         messages = []
         for action in plan:
+            if action.name == "vision_click":
+                target = action.params.get("target", "")
+                if self._vision_click_fn:
+                    self._vision_click_fn(target, bool(action.params.get("double")))
+                    messages.append(f"Looking for {target}…")
+                else:
+                    messages.append("Vision clicking isn't set up.")
+                continue
             result = actions.execute(action)
             logger.info(f"AGENT executed {action.name} params={action.params} ok={result.ok}")
             messages.append(result.message)

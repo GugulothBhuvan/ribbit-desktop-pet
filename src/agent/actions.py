@@ -219,6 +219,23 @@ def mouse_click(button: str = "left", double: bool = False) -> ActionResult:
         return ActionResult(False, "I couldn't click.")
 
 
+def click_at(x: int, y: int, double: bool = False) -> ActionResult:
+    """Clicks an absolute screen coordinate (used by vision-click)."""
+    pg = _backend()
+    if pg is None:
+        return ActionResult(False, "Mouse control isn't installed.")
+    try:
+        if double:
+            pg.doubleClick(x, y)
+        else:
+            pg.click(x, y)
+        logger.info(f"AGENT click_at: ({x},{y}) double={double}")
+        return ActionResult(True, "Clicked.")
+    except Exception as e:
+        logger.error(f"click_at failed ({x},{y}): {e}")
+        return ActionResult(False, "I couldn't click there.")
+
+
 def media_key(key: str) -> ActionResult:
     pg = _backend()
     if pg is None:

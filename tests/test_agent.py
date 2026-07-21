@@ -163,8 +163,10 @@ def test_type_preserves_case_and_is_risky(agent):
     assert action.risk == RISK_RISKY
 
 
-@pytest.mark.parametrize("text", ["copy that down", "i need to paste my thoughts", "click of a button"])
+@pytest.mark.parametrize("text", ["copy that down", "i need to paste my thoughts", "cut to the chase"])
 def test_phase2_exact_match_does_not_hijack_chat(agent, text):
+    # copy/paste/cut are exact-match only, so these stay chat.
+    # (Note: "click <target>" IS a command from Phase 3 — vision-click.)
     assert agent.parse(text) is None
 
 
@@ -280,3 +282,67 @@ def test_llm_risk_classification(agent):
     assert agent._risk_for("press_hotkey", {"keys": ["ctrl", "c"]}) == RISK_SAFE      # copy
     assert agent._risk_for("press_hotkey", {"keys": ["ctrl", "v"]}) == RISK_RISKY     # paste
     assert agent._risk_for("web_search", {}) == RISK_SAFE
+
+
+# --- Phase 3: vision-click ----------------------------------------------------
+
+from src.agent import vision_click as vc
+
+
+def test_parse_point_valid_and_negative():
+    assert vc.parse_point('{"found": true, "x": 320, "y": 110}') == (320, 110)
+    assert vc.parse_point('here you go:\n{"x": 12.6, "y": 40.2}') == (13, 40)   # rounds
+    assert vc.parse_point('{"found": false}') is None
+    assert vc.parse_point('{"x": 10}') is None            # missing y
+    assert vc.parse_point("no json here") is None
+    assert vc.parse_point('```json\n{"found":true,"x":1,"y":2}\n```') == (1, 2)
+
+
+def test_downscaled_size_matches_capture_downscale():
+    assert vc.downscaled_size(1920, 1080, 1024) == (1024, 576)
+    assert vc.downscaled_size(800, 600, 1024) == (800, 600)   # already small: no upscale
+
+
+def test_map_to_screen_undoes_downscale_and_offset():
+    """Center of the model image must map to the center of the monitor, on a
+    non-primary monitor (offset origin) — the coordinate bug class we fixed."""
+    geom = (1920, -118, 1920, 1080)             # second monitor
+    iw, ih = vc.downscaled_size(1920, 1080, 1024)   # (1024, 576)
+    sx, sy = vc.map_to_screen(iw // 2, ih // 2, iw, ih, geom)
+    assert abs(sx - (1920 + 960)) <= 1          # 2880
+    assert abs(sy - (-118 + 540)) <= 1          # 422
+
+
+def test_map_to_screen_clamps_inside_monitor():
+    geom = (0, 0, 1536, 864)
+    sx, sy = vc.map_to_screen(99999, 99999, 1024, 576, geom)
+    assert sx == 1535 and sy == 863             # never off the monitor
+
+
+@pytest.mark.parametrize("text,double", [
+    ("click the blue submit button", False),
+    ("click on the search bar", False),
+    ("double click the chrome icon", True),
+    ("tap the menu", False),
+])
+def test_parse_click_target_is_vision_click(agent, text, double):
+    action = agent.parse(text)
+    assert action is not None and action.name == "vision_click"
+    assert action.risk == RISK_RISKY
+    assert action.params.get("double", False) is double
+
+
+def test_bare_click_stays_cursor_click_not_vision(agent):
+    assert agent.parse("click").name == "mouse_click"
+    assert agent.parse("right click").name == "mouse_click"
+
+
+def test_vision_click_triggers_injected_executor(agent, monkeypatch):
+    """Running a vision_click must call the injected async executor (not
+    actions.execute) and report that it's looking."""
+    monkeypatch.setattr(Config, "AGENT_CONFIRM_RISKY", False)
+    calls = []
+    agent.set_vision_click_fn(lambda target, double: calls.append((target, double)))
+    reply = agent.try_handle("click the red button")
+    assert calls == [("the red button", False)]
+    assert "looking for" in reply.lower()

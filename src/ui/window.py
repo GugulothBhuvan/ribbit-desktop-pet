@@ -45,6 +45,7 @@ class PetWindow(QWidget):
         EventType.POMODORO_BREAK_COMPLETE,
         EventType.REMINDER_TRIGGERED,
         EventType.VISION_CAPTURE_REQUESTED,
+        EventType.VISION_CLICK_REQUESTED,
         EventType.TESTS_PASSED,
         EventType.TESTS_FAILED,
         EventType.SPEECH_REQUESTED,
@@ -579,6 +580,13 @@ class PetWindow(QWidget):
             conversational = data.get("conversational", False)
             self._capture_and_analyze_screen(prompt, pet_state, conversational)
 
+        elif event_type == EventType.VISION_CLICK_REQUESTED:
+            self.hide()
+            self.speech_bubble.hide()
+            target = data.get("target", "")
+            double = data.get("double", False)
+            QTimer.singleShot(250, lambda: self._execute_vision_click_capture(target, double))
+
         elif event_type == EventType.TESTS_PASSED:
             if self._display_ambient_bubble("All unit tests passed! Excellent work! 🎉"):
                 self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.WAVE})
@@ -654,6 +662,33 @@ class PetWindow(QWidget):
             logger.error(f"Failed to capture screen: {e}")
             self.show()
             self.display_speech_bubble("Oops! I couldn't look at your screen.")
+            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
+
+    def _execute_vision_click_capture(self, target: str, double: bool):
+        """Grabs the pet's monitor and hands it to the orchestrator to locate and
+        click `target`. Publishes the monitor geometry so screen coordinates can
+        be reconstructed from the model's point."""
+        try:
+            from PyQt6.QtWidgets import QApplication
+            screen = self.screen() or QApplication.primaryScreen()
+            if not screen:
+                raise RuntimeError("No monitor found to capture.")
+            image = screen.grabWindow(0).toImage()  # pyrefly: ignore[bad-argument-type]
+            if image.isNull() or image.width() == 0:
+                raise RuntimeError(f"Grab of screen '{screen.name()}' returned no image.")
+            geo = screen.geometry()
+            self.show()
+            self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.THINK})
+            self.event_bus.publish(EventType.VISION_CLICK_CAPTURED, {
+                "target": target,
+                "double": double,
+                "image": image,
+                "geometry": (geo.x(), geo.y(), geo.width(), geo.height()),
+            })
+        except Exception as e:
+            logger.error(f"Vision-click capture failed: {e}")
+            self.show()
+            self.display_speech_bubble("Oops! I couldn't look at the screen.")
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
 
     def paintEvent(self, event):

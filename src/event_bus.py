@@ -61,6 +61,10 @@ class EventType:
     CHAT_QUERY_REQUESTED = "CHAT_QUERY_REQUESTED"
     PTT_TOGGLED = "PTT_TOGGLED"  # Global hotkey toggled push-to-talk
 
+    # Desktop agent vision-click: request a capture, then act on it
+    VISION_CLICK_REQUESTED = "VISION_CLICK_REQUESTED"   # {target}
+    VISION_CLICK_CAPTURED = "VISION_CLICK_CAPTURED"     # {target, image, geometry}
+
     # Hands-free conversation mode
     CONVERSATION_STARTED = "CONVERSATION_STARTED"
     CONVERSATION_ENDED = "CONVERSATION_ENDED"
