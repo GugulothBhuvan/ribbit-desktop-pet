@@ -25,6 +25,7 @@ class SpriteLoader:
         self.set_mascot_directory(Config.SELECTED_MASCOT)
         
         self.metadata: dict = {}
+        # pyrefly: ignore [bad-assignment]
         self.sheet_pixmap: QPixmap = None
         # Per-mascot base scale: lets a sheet with large native cells (e.g. Modi
         # at 248x470) render at a sensible on-screen size without the user having
