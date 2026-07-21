@@ -76,6 +76,15 @@ class Config:
     CONVERSATION_MAX_UTTERANCE_SEC = float(os.getenv("CONVERSATION_MAX_UTTERANCE_SEC", "15"))
     CONVERSATION_MIN_SPEECH_MS = int(os.getenv("CONVERSATION_MIN_SPEECH_MS", "200"))   # ignore shorter blips
 
+    # Desktop agent: let voice commands drive the OS (open apps, URLs, search;
+    # later keyboard/mouse/vision). OFF by default — this hands an LLM the
+    # keyboard, so it must be a deliberate opt-in. Risky actions always confirm.
+    AGENT_ENABLED = os.getenv("AGENT_ENABLED", "0") == "1"
+    AGENT_CONFIRM_RISKY = os.getenv("AGENT_CONFIRM_RISKY", "1") == "1"
+    # Extra app launchers as "name=command" pairs, comma-separated, merged onto
+    # the built-in allowlist. e.g. "slack=slack,steam=steam"
+    AGENT_EXTRA_APPS = os.getenv("AGENT_EXTRA_APPS", "")
+
     # Behavior Settings
     WANDER_INTERVAL_MIN = int(os.getenv("WANDER_INTERVAL_MIN", "2"))
     WANDER_INTERVAL_MAX = int(os.getenv("WANDER_INTERVAL_MAX", "5"))

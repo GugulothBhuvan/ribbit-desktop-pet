@@ -102,6 +102,11 @@ class AIOrchestrator(QObject):
         # Single in-flight query guard (audit M-6 / plan 3.5)
         self._query_in_flight = False
 
+        # Desktop agent: intercepts voice/chat lines that are OS commands
+        # (opt-in via Config.AGENT_ENABLED) before they reach the chat LLM.
+        from src.agent.agent import DesktopAgent
+        self.agent = DesktopAgent()
+
         for event_type in self.SUBSCRIBED_EVENTS:
             self.event_bus.subscribe(event_type, self.on_event, executor="gui")
 
@@ -173,6 +178,15 @@ class AIOrchestrator(QObject):
             logger.info("Query already in flight; ignoring new query.")
             return
         logger.info(f"Handling user query: '{user_prompt}'")
+
+        # Desktop agent (opt-in): if this line is a computer command ("open
+        # Chrome", "search YouTube for ..."), do it and speak the result instead
+        # of chatting. Returns None for anything that isn't a clear command.
+        agent_reply = self.agent.try_handle(user_prompt)
+        if agent_reply is not None:
+            logger.info(f"Agent handled command; reply: '{agent_reply}'")
+            self.event_bus.publish(EventType.SPEECH_REQUESTED, {"text": agent_reply})
+            return
 
         # Check if the query asks the pet to look at screen / code / design.
         # Only route to vision when the active provider can actually see.
