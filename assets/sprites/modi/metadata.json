@@ -13,7 +13,7 @@
       "walk_bag"
     ]
   },
-  "_source": "map; dragged=fast walk (tensed)",
+  "_source": "map; +run row (standalone, for cockroach-panic behaviour)",
   "animations": {
     "idle": {
       "fps": 1,
@@ -211,6 +211,68 @@
           "w": 275,
           "h": 470,
           "duration_ms": 80
+        }
+      ]
+    },
+    "run": {
+      "fps": 18,
+      "loop": true,
+      "frames": [
+        {
+          "x": 0,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 275,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 550,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 825,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1100,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1375,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1650,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1925,
+          "y": 4230,
+          "w": 275,
+          "h": 470,
+          "duration_ms": 55
         }
       ]
     },

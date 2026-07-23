@@ -2,11 +2,11 @@
   "sprite_sheet": "mascot_spritesheet_clean.png",
   "grid": {
     "columns": 8,
-    "rows": 9,
+    "rows": 10,
     "cell_width": 275,
     "cell_height": 470,
     "sheet_width": 2200,
-    "sheet_height": 4230,
+    "sheet_height": 4700,
     "origin": "top-left",
     "feet_baseline_from_cell_bottom": 30,
     "note": "Each frame isolated by connected-component mask; sprites centered per cell, no cross-cell overlap."
@@ -574,6 +574,69 @@
           "frame": 8,
           "x": 1925,
           "y": 3760,
+          "w": 275,
+          "h": 470
+        }
+      ]
+    },
+    "run": {
+      "row": 10,
+      "row_index": 9,
+      "frame_count": 8,
+      "frames": [
+        {
+          "frame": 1,
+          "x": 0,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 2,
+          "x": 275,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 3,
+          "x": 550,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 4,
+          "x": 825,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 5,
+          "x": 1100,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 6,
+          "x": 1375,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 7,
+          "x": 1650,
+          "y": 4230,
+          "w": 275,
+          "h": 470
+        },
+        {
+          "frame": 8,
+          "x": 1925,
+          "y": 4230,
           "w": 275,
           "h": 470
         }

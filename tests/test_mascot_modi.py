@@ -67,6 +67,18 @@ def test_modi_idle_variant_is_stationary_not_walking():
         assert not (ys & walk_ys), f"idle variant '{variant}' uses walk frames (moonwalk)"
 
 
+def test_modi_run_row_present():
+    """The panic-run cycle (row 10) is merged as a standalone `run` animation,
+    ready for the cockroach-swarm behaviour. 8 frames, on the new sheet row."""
+    meta = _modi_meta()
+    mp = _modi_map()
+    assert "run" in mp["animations"] and mp["animations"]["run"]["row_index"] == 9
+    run = meta["animations"]["run"]
+    assert len(run["frames"]) == 8
+    assert run["frames"][0]["y"] == 9 * 470          # row 10 starts at y=4230
+    assert mp["grid"]["rows"] == 10 and mp["grid"]["sheet_height"] == 4700
+
+
 def test_modi_dragged_is_fast_walk_flail():
     """Dragged uses the walk row (R5) cycled faster than a normal walk, so Modi
     flails his legs 'tensed' while held instead of hanging static."""
