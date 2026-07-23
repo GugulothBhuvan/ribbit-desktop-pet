@@ -1,0 +1,87 @@
+{
+    "sprite_sheet": "roach_swarm_clean.png",
+    "grid": {
+        "columns": 8,
+        "rows": 1,
+        "cell_width": 492,
+        "cell_height": 206,
+        "sheet_width": 3936,
+        "sheet_height": 206,
+        "origin": "top-left"
+    },
+    "animations": {
+        "roach_swarm": {
+            "row": 1,
+            "row_index": 0,
+            "frame_count": 8,
+            "loop": true,
+            "suggested_fps": 12,
+            "frames": [
+                {
+                    "frame": 1,
+                    "label": "Formation Enters",
+                    "x": 0,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 2,
+                    "label": "Advance",
+                    "x": 492,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 3,
+                    "label": "Stretch Formation",
+                    "x": 984,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 4,
+                    "label": "Passing Stride",
+                    "x": 1476,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 5,
+                    "label": "Full Sprint",
+                    "x": 1968,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 6,
+                    "label": "Compress Formation",
+                    "x": 2460,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 7,
+                    "label": "Catch Up",
+                    "x": 2952,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                },
+                {
+                    "frame": 8,
+                    "label": "Reset / Loop",
+                    "x": 3444,
+                    "y": 0,
+                    "w": 492,
+                    "h": 206
+                }
+            ]
+        }
+    }
+}

@@ -396,7 +396,7 @@ class PetWindow(QWidget):
                 needs_repaint = True
 
         # Update movement direction in renderer
-        if self.renderer.current_state == PetState.WALK:
+        if self.renderer.current_state in (PetState.WALK, PetState.PANIC_RUN):
             if self.renderer.set_direction(self.physics.walk_direction):
                 needs_repaint = True
 

@@ -37,6 +37,9 @@ class SpriteLoader:
         self._animation_cache: Dict[str, List[QPixmap]] = {}
         # Tracks last time each animation cache was accessed
         self._last_accessed: Dict[str, float] = {}
+        # Extra sheets an animation may slice from instead of the main one
+        # (e.g. Modi's panic_run composite lives in its own panic_run.png).
+        self._extra_sheets: Dict[str, QPixmap] = {}
         
         # Load metadata and sheet
         self.load_metadata()
@@ -58,6 +61,7 @@ class SpriteLoader:
         self.set_mascot_directory(mascot_name)
         self._animation_cache.clear()
         self._last_accessed.clear()
+        self._extra_sheets.clear()
         self.load_metadata()
         self.load_sprite_sheet()
 
@@ -130,15 +134,16 @@ class SpriteLoader:
             logger.error("Animation 'idle' not defined in metadata.json — nothing to render.")
             return []
 
+        sheet = self._sheet_for(anim_data)
         frames = []
         for f_info in anim_data.get("frames", []):
             x = f_info.get("x", 0)
             y = f_info.get("y", 0)
             w = f_info.get("w", 128)
             h = f_info.get("h", 128)
-            
-            # Slices sub-rectangle from main sheet
-            sub_pixmap = self.sheet_pixmap.copy(x, y, w, h)
+
+            # Slices sub-rectangle from the animation's sheet
+            sub_pixmap = sheet.copy(x, y, w, h)
             
             # Scale frame using smooth transformations
             scaled_w = int(w * self.scale_factor)
@@ -153,6 +158,22 @@ class SpriteLoader:
 
         self._animation_cache[animation_name] = frames
         return frames
+
+    def _sheet_for(self, anim_data: dict) -> QPixmap:
+        """The pixmap an animation slices from — its own `sheet` if declared
+        (loaded once and cached), else the mascot's main sheet."""
+        name = anim_data.get("sheet")
+        if not name:
+            return self.sheet_pixmap
+        if name not in self._extra_sheets:
+            path = os.path.join(self.sprite_dir, name)
+            if os.path.exists(path):
+                self._extra_sheets[name] = QPixmap(path)
+                logger.info(f"Loaded auxiliary sheet: {path}")
+            else:
+                logger.error(f"Auxiliary sheet not found: {path}; using main sheet.")
+                self._extra_sheets[name] = self.sheet_pixmap
+        return self._extra_sheets[name]
 
     def _anim_data(self, animation_name: str) -> dict:
         """Metadata for an animation, following the idle fallback."""

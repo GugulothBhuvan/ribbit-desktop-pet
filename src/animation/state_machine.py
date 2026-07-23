@@ -153,3 +153,6 @@ class StateMachine:
                     self.set_state(PetState.FALL)
                 elif finished_state == PetState.WAVE:
                     self.set_state(PetState.IDLE)
+                elif finished_state == PetState.SLING:
+                    # Jhola lifted -> the roach swarm sends him sprinting.
+                    self.set_state(PetState.PANIC_RUN)

@@ -13,7 +13,7 @@
       "walk_bag"
     ]
   },
-  "_source": "map; 304x470 grid (user-updated sheet), +run row",
+  "_source": "304 grid; +sling +panic_run(own sheet)",
   "animations": {
     "idle": {
       "fps": 1,
@@ -275,6 +275,131 @@
           "duration_ms": 55
         }
       ]
+    },
+    "sling": {
+      "fps": 11,
+      "loop": false,
+      "frames": [
+        {
+          "x": 0,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 304,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 608,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 912,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 1216,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 1520,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 1824,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        },
+        {
+          "x": 2128,
+          "y": 3290,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 90
+        }
+      ]
+    },
+    "panic_run": {
+      "fps": 18,
+      "loop": true,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 304,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 608,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 912,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1216,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1520,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 1824,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        },
+        {
+          "x": 2128,
+          "y": 0,
+          "w": 304,
+          "h": 470,
+          "duration_ms": 55
+        }
+      ],
+      "sheet": "panic_run.png"
     },
     "wave": {
       "fps": 10,

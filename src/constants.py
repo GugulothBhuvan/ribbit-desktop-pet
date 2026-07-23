@@ -31,6 +31,14 @@ MAX_WANDER_TIME = 10.0
 MIN_IDLE_TIME = 3.0
 MAX_IDLE_TIME = 10.0
 
+# Cockroach panic run (Modi): rare, he lifts the jhola then sprints back and
+# forth as the swarm chases, before calming down.
+PANIC_CHANCE = 0.06         # per idle roll (Modi only)
+PANIC_RUN_SPEED = 320.0     # px/s — ~2.3x walk
+PANIC_MIN_BOUNCES = 2       # wall bounces before he calms
+PANIC_MAX_BOUNCES = 3
+PANIC_MAX_TIME = 14.0       # safety cap (s) so a panic can never run forever
+
 # Animation States
 class PetState:
     IDLE = "idle"
@@ -46,6 +54,8 @@ class PetState:
     DRAGGED = "dragged"
     SLEEP = "sleep"
     SIT = "sit"
+    SLING = "sling"          # lift the jhola (one-shot, precedes a panic run)
+    PANIC_RUN = "panic_run"  # sprint with the roach swarm, bouncing off walls
 
 # Mouse Interaction
 CLICK_DRAG_THRESHOLD_PX = 6     # Movement beyond this is a drag, not a click

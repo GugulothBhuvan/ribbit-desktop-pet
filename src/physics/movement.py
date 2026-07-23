@@ -5,7 +5,8 @@ from src.constants import (
     PetState, PHYSICS_TIME_STEP, MAX_PHYSICS_DT, WALK_SPEED,
     AIR_DRAG_PER_SEC, GROUND_DRAG_PER_SEC, MIN_SLIDE_SPEED, MAX_THROW_SPEED,
     COYOTE_MARGIN_PX,
-    MIN_WANDER_TIME, MAX_WANDER_TIME, MIN_IDLE_TIME, MAX_IDLE_TIME
+    MIN_WANDER_TIME, MAX_WANDER_TIME, MIN_IDLE_TIME, MAX_IDLE_TIME,
+    PANIC_CHANCE, PANIC_RUN_SPEED, PANIC_MIN_BOUNCES, PANIC_MAX_BOUNCES, PANIC_MAX_TIME
 )
 from src.physics.gravity import GravitySimulator
 from src.physics.collision import CollisionResolver
@@ -38,6 +39,11 @@ class MovementController:
         self.walk_direction = 1  # 1 for right, -1 for left
         self.wander_timer = 0.0
         self.idle_timer = 0.0
+
+        # Cockroach panic run
+        self._panic_active = False
+        self.panic_bounces_left = 0
+        self.panic_timer = 0.0
 
         # Mouse dragging variables
         self.prev_drag_pos = QPoint(int(self.x), int(self.y))
@@ -101,6 +107,21 @@ class MovementController:
                 recommended_state = PetState.IDLE
                 self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
 
+        elif current_state == PetState.PANIC_RUN:
+            if not self._panic_active:          # first tick of a panic run
+                self._panic_active = True
+                self.walk_direction = random.choice([-1, 1])
+                self.panic_bounces_left = random.randint(PANIC_MIN_BOUNCES, PANIC_MAX_BOUNCES)
+                self.panic_timer = PANIC_MAX_TIME
+            self.vx = PANIC_RUN_SPEED * self.walk_direction
+            self.vy = 0.0
+            self.x += self.vx * dt
+            self.panic_timer -= dt
+            if self.panic_timer <= 0:            # safety cap: calm down
+                recommended_state = PetState.IDLE
+                self._panic_active = False
+                self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
+
         elif current_state == PetState.SLEEP:
             self.vx = 0.0
             self.vy = 0.0
@@ -144,6 +165,15 @@ class MovementController:
             # Reverse direction on wall hit
             self.walk_direction *= -1
 
+        elif current_state == PetState.PANIC_RUN and details["collided_wall"]:
+            # Bounce off the wall; after enough bounces he calms down.
+            self.walk_direction *= -1
+            self.panic_bounces_left -= 1
+            if self.panic_bounces_left <= 0:
+                recommended_state = PetState.IDLE
+                self._panic_active = False
+                self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
+
         return self.x, self.y, recommended_state
 
     def _roll_idle_behavior(self) -> str:
@@ -153,6 +183,12 @@ class MovementController:
             # Calm mode (PRD §15 reduced motion): stay put
             self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
             return PetState.IDLE
+
+        # Rare cockroach-panic run (Modi only): lift the jhola, then sprint. The
+        # SLING one-shot chains into PANIC_RUN via ANIMATION_FINISHED.
+        if Config.SELECTED_MASCOT == "modi" and random.random() < PANIC_CHANCE:
+            self._panic_active = False   # armed; PANIC_RUN initialises on entry
+            return PetState.SLING
 
         roll = random.random()
         if roll < 0.55:  # 55% walk — the pet should roam, not mostly stand
