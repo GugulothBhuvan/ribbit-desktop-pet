@@ -97,6 +97,24 @@ def test_walls_span_the_whole_virtual_desktop(qapp):
     assert x == desktop.left() + desktop.width() - w
 
 
+def test_skip_dead_gap_hops_across_non_adjacent_monitors(qapp, monkeypatch):
+    """A pet whose centre lands in dead space between non-adjacent monitors must
+    snap onto the next display in its travel direction, never linger in the void.
+    (Reported live: laptop 0-1536, external 1920-3840 -> 384px invisible gap.)"""
+    from src.physics.collision import CollisionResolver
+    monkeypatch.setattr(CollisionResolver, "get_monitor_spans",
+                        staticmethod(lambda: [(0, 1536), (1920, 3840)]))
+    w = 110
+
+    # In the gap, moving right -> land left edge on the external monitor (1920).
+    assert CollisionResolver.skip_dead_gap(1700.0, w, vx=140.0) == 1920.0
+    # In the gap, moving left -> land right edge on the laptop (1536 - w).
+    assert CollisionResolver.skip_dead_gap(1700.0, w, vx=-140.0) == 1536.0 - w
+    # Actually on a monitor -> unchanged.
+    assert CollisionResolver.skip_dead_gap(500.0, w, vx=140.0) == 500.0
+    assert CollisionResolver.skip_dead_gap(2500.0, w, vx=-140.0) == 2500.0
+
+
 def test_floor_stays_per_monitor(qapp):
     """Floor must still come from the pet's own monitor (each has its own
     taskbar), even though walls span all monitors."""

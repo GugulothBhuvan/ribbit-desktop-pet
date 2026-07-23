@@ -131,6 +131,10 @@ class MovementController:
             self.x, self.y, self.w, self.h, self.vx, self.vy
         )
 
+        # 4b. Never linger in dead space between non-adjacent monitors: hop the
+        # pet across the gap onto the next display so it stays visible while roaming.
+        self.x = CollisionResolver.skip_dead_gap(self.x, self.w, self.vx)
+
         if current_state == PetState.FALL and details["collided_floor"]:
             # Collided with taskbar, trigger landing
             recommended_state = PetState.LANDING

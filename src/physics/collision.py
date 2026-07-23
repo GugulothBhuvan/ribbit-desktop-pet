@@ -49,6 +49,33 @@ class CollisionResolver:
             rect = rect.united(screen.availableGeometry())
         return rect
 
+    @staticmethod
+    def get_monitor_spans() -> list:
+        """Sorted (left, right) x-spans of every physical monitor."""
+        spans = [(s.geometry().left(), s.geometry().left() + s.geometry().width())
+                 for s in QGuiApplication.screens()]
+        return sorted(spans)
+
+    @classmethod
+    def skip_dead_gap(cls, x: float, w: int, vx: float) -> float:
+        """If the pet's centre has wandered into dead space between non-adjacent
+        monitors (a gap no display covers), snap it onto the next monitor in its
+        direction of travel so it never disappears into the void. Returns x
+        unchanged when the pet is on a real monitor or there's no gap to cross."""
+        spans = cls.get_monitor_spans()
+        if not spans:
+            return x
+        cx = x + w / 2
+        if any(left <= cx < right for left, right in spans):
+            return x  # already on a monitor
+        rights_behind = [right for left, right in spans if right <= cx]   # monitors to the left
+        lefts_ahead = [left for left, right in spans if left > cx]         # monitors to the right
+        if vx >= 0 and lefts_ahead:
+            return float(min(lefts_ahead))          # land left edge on the next monitor
+        if vx < 0 and rights_behind:
+            return float(max(rights_behind) - w)    # land right edge on the previous monitor
+        return x
+
     @classmethod
     def resolve_boundaries(
         cls, x: float, y: float, w: int, h: int, vx: float, vy: float
