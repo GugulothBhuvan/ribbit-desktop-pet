@@ -67,6 +67,18 @@ def test_modi_idle_variant_is_stationary_not_walking():
         assert not (ys & walk_ys), f"idle variant '{variant}' uses walk frames (moonwalk)"
 
 
+def test_modi_dragged_is_fast_walk_flail():
+    """Dragged uses the walk row (R5) cycled faster than a normal walk, so Modi
+    flails his legs 'tensed' while held instead of hanging static."""
+    meta = _modi_meta()
+    mp = _modi_map()
+    dragged = meta["animations"]["dragged"]
+    walk = meta["animations"]["walk"]
+    assert dragged["frames"][0]["y"] == mp["animations"]["walk"]["frames"][0]["y"]
+    assert len(dragged["frames"]) == 8
+    assert dragged["frames"][0]["duration_ms"] < walk["frames"][0]["duration_ms"]  # faster
+
+
 def test_modi_walk_variants_map_to_plain_and_bag_rows():
     meta = _modi_meta()
     mp = _modi_map()
