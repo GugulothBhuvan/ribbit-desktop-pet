@@ -253,9 +253,10 @@ Sheet: [`assets/sprites/modi/spritesheet.png`](./assets/sprites/modi/spritesheet
   **walk** = plain *or* carrying his **jhola** (bag), announced with
   *"Jhola leke chal pada"*.
 
-The sheet's nine source rows and how each maps to an engine behaviour:
+Every frame of the sheet, labelled `R{row}C{col} (source animation)` — the bullets
+above show how each source row maps to an engine behaviour:
 
-![Modi frame map](./assets/sprites/modi/modi_frame_map.png)
+![Modi frames map](./assets/sprites/modi/modi_frames_map.png)
 
 ---
 
