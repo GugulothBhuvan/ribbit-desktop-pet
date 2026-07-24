@@ -85,6 +85,11 @@ class CompositionRoot:
             conversation_manager=self.conversation
         )
 
+        # 8. The chasing roach (Modi's panic trigger) reads the pet's live
+        #    position, so it is built after the window.
+        from src.ui.roach_window import RoachWindow
+        self.roach = RoachWindow(self.event_bus, self.window)
+
         logger.info("Object graph constructed successfully.")
 
     def start(self):

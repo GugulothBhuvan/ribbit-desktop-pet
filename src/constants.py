@@ -32,12 +32,23 @@ MIN_IDLE_TIME = 3.0
 MAX_IDLE_TIME = 10.0
 
 # Cockroach panic run (Modi): rare, he lifts the jhola then sprints back and
-# forth as the swarm chases, before calming down.
+# forth as the roach chases, before calming down.
 PANIC_CHANCE = 0.06         # per idle roll (Modi only)
 PANIC_RUN_SPEED = 320.0     # px/s — ~2.3x walk
 PANIC_MIN_BOUNCES = 2       # wall bounces before he calms
 PANIC_MAX_BOUNCES = 3
 PANIC_MAX_TIME = 14.0       # safety cap (s) so a panic can never run forever
+
+# The roach is an independent sprite (src/ui/roach_window.py) that scuttles in
+# from BEHIND Modi and chases him. It spawns ROACH_SPAWN_GAP px back on the near
+# side (short approach = fast reaction); when it closes to ROACH_SEE_DISTANCE he
+# notices, freezes ROACH_NOTICE_SEC, then lifts the jhola and flees AWAY from it.
+ROACH_SPEED = 300.0          # px/s while chasing (< PANIC_RUN_SPEED so Modi pulls ahead)
+ROACH_SPAWN_GAP = 420.0      # px behind Modi the roach appears (bounds his reaction time)
+ROACH_SEE_DISTANCE = 280.0   # px gap at which Modi first notices the roach
+ROACH_NOTICE_SEC = 0.7       # he freezes/stares this long before panicking
+ROACH_EXIT_SPEED = 320.0     # px/s scuttle-off once Modi has calmed
+ROACH_CRY = "OMG! Cockroach! Bhaago"  # what Modi shouts when he sees it
 
 # Animation States
 class PetState:

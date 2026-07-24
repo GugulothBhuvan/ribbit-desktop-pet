@@ -68,15 +68,18 @@ def test_modi_idle_variant_is_stationary_not_walking():
 
 
 def test_modi_run_row_present():
-    """The panic-run cycle (row 10) is merged as a standalone `run` animation,
-    ready for the cockroach-swarm behaviour. 8 frames, on the new sheet row."""
+    """The run cycle is the bottom sheet row (`run_bag` — Modi sprinting WITH his
+    jhola), used for both `run` and the cockroach `panic_run`. 8 frames on the row."""
     meta = _modi_meta()
     mp = _modi_map()
-    assert "run" in mp["animations"] and mp["animations"]["run"]["row_index"] == 9
-    run = meta["animations"]["run"]
-    assert len(run["frames"]) == 8
-    assert run["frames"][0]["y"] == 9 * 470          # row 10 starts at y=4230
-    assert mp["grid"]["rows"] == 10 and mp["grid"]["sheet_height"] == 4700
+    grid = mp["grid"]
+    assert "run_bag" in mp["animations"] and mp["animations"]["run_bag"]["row_index"] == 9
+    run_y = mp["animations"]["run_bag"]["frames"][0]["y"]
+    for anim in ("run", "panic_run"):
+        frames = meta["animations"][anim]["frames"]
+        assert len(frames) == 8
+        assert frames[0]["y"] == run_y               # both draw the run_bag row
+    assert grid["rows"] == 10 and grid["sheet_height"] == 10 * grid["cell_height"]
 
 
 def test_modi_dragged_is_fast_walk_flail():
@@ -119,13 +122,20 @@ def test_modi_wave_is_the_namaste_row():
 
 
 def test_modi_frames_are_in_bounds():
-    """Every frame rect must lie inside the sheet — an out-of-bounds crop renders
-    blank, exactly the failure mode we hit with screen capture. Sheet size is
-    read from the map so this survives a re-export at different dimensions."""
+    """Every frame rect must lie inside the sheet it slices from — an out-of-bounds
+    crop renders blank, exactly the failure mode we hit with screen capture. An
+    animation with its own `sheet` (e.g. panic_run.png) is validated against that
+    image, not the main sheet. Sizes are read live so this survives a re-export."""
+    from PIL import Image
     meta = _modi_meta()
     grid = _modi_map()["grid"]
-    sheet_w, sheet_h = grid["sheet_width"], grid["sheet_height"]
+    main_w, main_h = grid["sheet_width"], grid["sheet_height"]
     for name, anim in meta["animations"].items():
+        if anim.get("sheet"):
+            with Image.open(os.path.join(MODI_DIR, anim["sheet"])) as im:
+                sheet_w, sheet_h = im.size
+        else:
+            sheet_w, sheet_h = main_w, main_h
         for fr in anim["frames"]:
             assert fr["x"] + fr["w"] <= sheet_w, f"{name} frame exceeds sheet width"
             assert fr["y"] + fr["h"] <= sheet_h, f"{name} frame exceeds sheet height"

@@ -40,8 +40,11 @@ class MovementController:
         self.wander_timer = 0.0
         self.idle_timer = 0.0
 
-        # Cockroach panic run
+        # Cockroach panic run. _flee_direction (±1) makes PANIC_RUN sprint that
+        # one way — away from the roach — and calm at the wall instead of bouncing
+        # back toward it; 0 falls back to the legacy random back-and-forth.
         self._panic_active = False
+        self._flee_direction = 0
         self.panic_bounces_left = 0
         self.panic_timer = 0.0
 
@@ -110,8 +113,12 @@ class MovementController:
         elif current_state == PetState.PANIC_RUN:
             if not self._panic_active:          # first tick of a panic run
                 self._panic_active = True
-                self.walk_direction = random.choice([-1, 1])
-                self.panic_bounces_left = random.randint(PANIC_MIN_BOUNCES, PANIC_MAX_BOUNCES)
+                if self._flee_direction != 0:   # flee straight away from the roach
+                    self.walk_direction = self._flee_direction
+                    self.panic_bounces_left = 0
+                else:                           # legacy random back-and-forth
+                    self.walk_direction = random.choice([-1, 1])
+                    self.panic_bounces_left = random.randint(PANIC_MIN_BOUNCES, PANIC_MAX_BOUNCES)
                 self.panic_timer = PANIC_MAX_TIME
             self.vx = PANIC_RUN_SPEED * self.walk_direction
             self.vy = 0.0
@@ -120,6 +127,7 @@ class MovementController:
             if self.panic_timer <= 0:            # safety cap: calm down
                 recommended_state = PetState.IDLE
                 self._panic_active = False
+                self._flee_direction = 0
                 self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
 
         elif current_state == PetState.SLEEP:
@@ -166,15 +174,29 @@ class MovementController:
             self.walk_direction *= -1
 
         elif current_state == PetState.PANIC_RUN and details["collided_wall"]:
-            # Bounce off the wall; after enough bounces he calms down.
-            self.walk_direction *= -1
-            self.panic_bounces_left -= 1
-            if self.panic_bounces_left <= 0:
+            if self._flee_direction != 0:
+                # Fled into the far wall -> cornered, nowhere left to run: calm.
+                # (Never reverse — that would send him back into the roach.)
                 recommended_state = PetState.IDLE
                 self._panic_active = False
+                self._flee_direction = 0
                 self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
+            else:
+                # Legacy: bounce off the wall; after enough bounces he calms.
+                self.walk_direction *= -1
+                self.panic_bounces_left -= 1
+                if self.panic_bounces_left <= 0:
+                    recommended_state = PetState.IDLE
+                    self._panic_active = False
+                    self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
 
         return self.x, self.y, recommended_state
+
+    def set_flee(self, direction: int):
+        """Make the imminent PANIC_RUN sprint one fixed way (away from the roach)
+        and calm at the wall rather than bouncing back toward it."""
+        self._flee_direction = 1 if direction >= 0 else -1
+        self._panic_active = False   # re-arm so the flee direction is taken on entry
 
     def _roll_idle_behavior(self) -> str:
         """Random chance wheel deciding what an idle pet does next."""
@@ -184,11 +206,13 @@ class MovementController:
             self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
             return PetState.IDLE
 
-        # Rare cockroach-panic run (Modi only): lift the jhola, then sprint. The
-        # SLING one-shot chains into PANIC_RUN via ANIMATION_FINISHED.
+        # Rare cockroach chase (Modi only): send in a roach. It scuttles up to
+        # Modi and he panics when it reaches him (RoachWindow -> ROACH_SIGHTED ->
+        # freeze -> SLING -> PANIC_RUN). Modi keeps idling until then.
         if Config.SELECTED_MASCOT == "modi" and random.random() < PANIC_CHANCE:
-            self._panic_active = False   # armed; PANIC_RUN initialises on entry
-            return PetState.SLING
+            self.event_bus.publish(EventType.ROACH_SPAWN_REQUESTED, {})
+            self.idle_timer = random.uniform(MIN_IDLE_TIME, MAX_IDLE_TIME)
+            return PetState.IDLE
 
         roll = random.random()
         if roll < 0.55:  # 55% walk — the pet should roam, not mostly stand

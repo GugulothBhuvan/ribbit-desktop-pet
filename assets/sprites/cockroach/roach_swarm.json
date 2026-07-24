@@ -1,85 +1,87 @@
 {
     "sprite_sheet": "roach_swarm_clean.png",
+    "base_scale": 0.40,
     "grid": {
         "columns": 8,
         "rows": 1,
-        "cell_width": 492,
-        "cell_height": 206,
-        "sheet_width": 3936,
-        "sheet_height": 206,
-        "origin": "top-left"
+        "cell_width": 592,
+        "cell_height": 191,
+        "sheet_width": 4736,
+        "sheet_height": 191,
+        "origin": "top-left",
+        "note": "White bg, neutral shadow/halo, and enclosed background pockets removed; eyes and warm dust preserved. Faces right."
     },
     "animations": {
-        "roach_swarm": {
+        "roach_run": {
             "row": 1,
             "row_index": 0,
             "frame_count": 8,
             "loop": true,
-            "suggested_fps": 12,
+            "suggested_fps": 14,
             "frames": [
                 {
                     "frame": 1,
-                    "label": "Formation Enters",
+                    "label": "Left Contact",
                     "x": 0,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 2,
-                    "label": "Advance",
-                    "x": 492,
+                    "label": "Passing",
+                    "x": 592,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 3,
-                    "label": "Stretch Formation",
-                    "x": 984,
+                    "label": "Right Contact",
+                    "x": 1184,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 4,
-                    "label": "Passing Stride",
-                    "x": 1476,
+                    "label": "Passing",
+                    "x": 1776,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 5,
-                    "label": "Full Sprint",
-                    "x": 1968,
+                    "label": "Left Contact",
+                    "x": 2368,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 6,
-                    "label": "Compress Formation",
-                    "x": 2460,
+                    "label": "Passing",
+                    "x": 2960,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 7,
-                    "label": "Catch Up",
-                    "x": 2952,
+                    "label": "Right Contact",
+                    "x": 3552,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 },
                 {
                     "frame": 8,
-                    "label": "Reset / Loop",
-                    "x": 3444,
+                    "label": "Passing / Loop",
+                    "x": 4144,
                     "y": 0,
-                    "w": 492,
-                    "h": 206
+                    "w": 592,
+                    "h": 191
                 }
             ]
         }

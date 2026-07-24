@@ -142,6 +142,13 @@ class ContextMenu(QMenu):
         self.calm_act.triggered.connect(self._on_calm_toggled)
         self.addAction(self.calm_act)
 
+        # 5c. Modi only: fire the cockroach panic run on demand (it's otherwise a
+        # rare random behaviour). Visibility refreshed on show for the live mascot.
+        self.panic_act = QAction("🪳 Cockroach Panic!", self)
+        self.panic_act.triggered.connect(self._trigger_panic)
+        self.addAction(self.panic_act)
+        self.aboutToShow.connect(self._refresh_dynamic_items)
+
         # 6. Pomodoro Submenu
         pomo_menu = self.addMenu("Pomodoro Timer")
         pomo_menu.setStyleSheet(MENU_STYLESHEET)
@@ -181,6 +188,13 @@ class ContextMenu(QMenu):
         logger.info(f"Calm mode (reduced motion): {checked}")
         Config.REDUCED_MOTION = checked
         self.application.run_async(self.settings_repo.set_setting("REDUCED_MOTION", "1" if checked else "0"))
+
+    def _refresh_dynamic_items(self):
+        """Mascot-specific items follow the currently selected mascot."""
+        self.panic_act.setVisible(Config.SELECTED_MASCOT == "modi")
+
+    def _trigger_panic(self):
+        self.parent_window.trigger_panic_run()
 
     def _add_reminder(self):
         """Prompts for a reminder text + delay and persists it (plan 6.3)."""

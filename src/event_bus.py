@@ -20,6 +20,11 @@ class EventType:
     ANIMATION_FINISHED = "ANIMATION_FINISHED"
     STATE_TRANSITION_TRIGGERED = "STATE_TRANSITION_TRIGGERED"
 
+    # Cockroach chase (Modi): a roach scuttles in from the screen edge, chases
+    # Modi, and when it gets close he panics (idle -> lift jhola -> flee).
+    ROACH_SPAWN_REQUESTED = "ROACH_SPAWN_REQUESTED"
+    ROACH_SIGHTED = "ROACH_SIGHTED"  # roach reached Modi -> triggers his panic
+
     # Input Processing Events
     VOICE_START_RECORDING = "VOICE_START_RECORDING"
     VOICE_STOP_RECORDING = "VOICE_STOP_RECORDING"

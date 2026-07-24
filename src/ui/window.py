@@ -7,7 +7,8 @@ from src.config import Config
 from src.constants import (
     PetState, FRAME_INTERVAL_MS, CLICK_DRAG_THRESHOLD_PX, SINGLE_CLICK_DELAY_MS,
     MIN_WANDER_TIME, MAX_WANDER_TIME, MAX_PHYSICS_DT,
-    JUMP_IMPULSE, JUMP_FORWARD_SPEED
+    JUMP_IMPULSE, JUMP_FORWARD_SPEED,
+    ROACH_NOTICE_SEC, ROACH_CRY
 )
 from src.event_bus import EventBus, EventType
 from src.physics.movement import MovementController
@@ -55,6 +56,7 @@ class PetWindow(QWidget):
         EventType.PTT_TOGGLED,
         EventType.APPLICATION_STARTED,
         EventType.USER_IDLE,
+        EventType.ROACH_SIGHTED,
     ]
 
     def __init__(self, event_bus: EventBus, sprite_loader: SpriteLoader,
@@ -88,6 +90,10 @@ class PetWindow(QWidget):
 
         # Hover bookkeeping: resume walking after the cursor leaves (audit m-24)
         self._pre_hover_state = None
+
+        # Guards the one-shot roach reaction (freeze -> sling -> flee)
+        self._reacting_to_roach = False
+        self._flee_dir = -1  # direction Modi flees when he sees the roach
 
         # Cooldown for ambient (non-user-initiated) speech (PRD "Never Spam")
         self._last_ambient_bubble = 0.0
@@ -432,6 +438,38 @@ class PetWindow(QWidget):
         if self.renderer.current_state == PetState.TALK:
             self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
 
+    def trigger_panic_run(self):
+        """On-demand: send in a roach. It scuttles up to Modi, he notices it,
+        freezes, lifts the jhola and flees (see _react_to_roach). Only Modi has
+        the panic/roach behaviour."""
+        if Config.REDUCED_MOTION:
+            self.display_speech_bubble("Turn off Calm Mode first!")
+            return
+        self.event_bus.publish(EventType.ROACH_SPAWN_REQUESTED, {})
+
+    def _react_to_roach(self, data: dict | None = None):
+        """ROACH_SIGHTED: Modi spots the roach — freeze and stare for
+        ROACH_NOTICE_SEC, then lift the jhola (SLING, which chains to PANIC_RUN)
+        and flee AWAY from it. Guarded so overlapping sightings can't stack."""
+        if self._reacting_to_roach or Config.REDUCED_MOTION:
+            return
+        self._reacting_to_roach = True
+        # Flee to whichever side is away from the roach (his back to it).
+        roach_x = (data or {}).get("roach_x", self.physics.x)
+        modi_center = self.physics.x + self.pet_width / 2
+        self._flee_dir = 1 if modi_center >= roach_x else -1
+        self.physics._panic_active = False   # arm a fresh flee
+        self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.IDLE})
+        QTimer.singleShot(int(ROACH_NOTICE_SEC * 1000), self._panic_from_roach)
+
+    def _panic_from_roach(self):
+        self._reacting_to_roach = False
+        if Config.REDUCED_MOTION:
+            return
+        self.physics.set_flee(self._flee_dir)   # PANIC_RUN sprints away, no bounce-back
+        self.display_speech_bubble(ROACH_CRY)
+        self.event_bus.publish(EventType.STATE_TRANSITION_TRIGGERED, {"state": PetState.SLING})
+
     def _greet(self):
         """Greeting gesture (WAVE — a namaste for Modi) plus the mascot's greeting
         line (e.g. 'Mitroonn....'). Mascots without a greeting line just wave."""
@@ -463,6 +501,10 @@ class PetWindow(QWidget):
 
     def on_event(self, event_type: str, data: dict):
         """Listens to EventBus signals (GUI thread)."""
+        if event_type == EventType.ROACH_SIGHTED:
+            self._react_to_roach(data)
+            return
+
         if event_type == EventType.SPRITE_CHANGED:
             state = data.get("state", "idle")
             loop = data.get("loop", True)
